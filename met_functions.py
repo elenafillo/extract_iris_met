@@ -20,6 +20,65 @@ def get_default_paths():
 
     return paths
 
+def get_saved_region_bounds():
+    """
+    Get the bounds of each world region
+    """
+    """
+    # these are actually incorrect but plot the correct lines - something to do with wrapping around the edges
+    
+    region_bounds = {1: [79.921875, 89.953125, -179.92969, 179.92969],
+        10: [-80.015625, -24.984375, -45.070312, 45.070312],
+        11: [-80.015625, -24.984375, 44.929688, 135.07031],
+        12: [-80.015625, -24.984375, -179.92969, 179.92969],
+        13: [-80.015625, -24.984375, -135.07031, -44.929688],
+        14: [-89.953125, -79.921875, -179.92969, 179.92969],
+        2: [24.984375, 80.015625, -45.070312, 45.070312],
+        3: [24.984375, 80.015625, 44.929688, 135.07031],
+        4: [24.984375, 80.015625, -179.92969, 179.92969],
+        5: [24.984375, 80.015625, -135.07031, -44.929688],
+        6: [-25.078125, 25.078125, -45.070312, 45.070312],
+        7: [-25.078125, 25.078125, 44.929688, 135.07031],
+        8: [-25.078125, 25.078125, -179.92969, 179.92969],
+        9: [-25.078125, 25.078125, -135.07031, -44.929688]}
+    """
+    region_bounds =    {1: [79.921875, 89.953125, 0.0703125, -0.0703125],
+        10: [-80.015625, -24.984375, -45.070312, 45.070312],
+        11: [-80.015625, -24.984375, 44.929688, 135.07031],
+        12: [-80.015625, -24.984375, 134.92969, -134.92969],
+        13: [-80.015625, -24.984375, -135.07031, -44.929688],
+        14: [-89.953125, -79.921875, 0.0703125, -0.0703125],
+        2: [24.984375, 80.015625, -45.070312, 45.070312],
+        3: [24.984375, 80.015625, 44.929688, 135.07031],
+        4: [24.984375, 80.015625, 134.92969, -134.92969],
+        5: [24.984375, 80.015625, -135.07031, -44.929688],
+        6: [-25.078125, 25.078125, -45.070312, 45.070312],
+        7: [-25.078125, 25.078125, 44.929688, 135.07031],
+        8: [-25.078125, 25.078125, 134.92969, -134.92969],
+        9: [-25.078125, 25.078125, -135.07031, -44.929688]}
+
+    return region_bounds
+
+def find_overlapping_regions(min_lat, max_lat, min_lon, max_lon):
+    """
+    Given a bounding box (min/max latitude and longitude), return the region IDs that overlap.
+
+
+    Returns:
+    list: Region IDs that overlap with the given domain
+    """
+    region_bounds = get_saved_region_bounds()
+    overlapping_regions = []
+
+    for region_id, (r_min_lat, r_max_lat, r_min_lon, r_max_lon) in region_bounds.items():
+        # Check if the bounding boxes overlap
+        lat_overlap = not (max_lat < r_min_lat or min_lat > r_max_lat)
+        lon_overlap = not (max_lon < r_min_lon or min_lon > r_max_lon)
+
+        if lat_overlap and lon_overlap:
+            overlapping_regions.append(region_id)
+
+    return overlapping_regions
 
 
 def load_iris(filepath, Mk, date, vars, num, homefolder):
