@@ -3,7 +3,7 @@ This repo has functions to extract meteorological datasets from the UM model hos
 
 ## File Structure
 The UM model is hosted on JASMIN at `/gws/nopw/j04/name/met_archive/Global/`. From 2011, it gets released in "Mk" blocks, under folders labelled `UMG_Mk{Mk_number}PT`. The following Mk numbers correspond to the following timeperiods: 
-| Month    | Savings |
+| Mk Number    | Dates contained |
 | -------- | ------- |
 | Mk6  | Jan 2011 - March 2013    |
 | Mk7  | Apr 2013 - Jun 2014    |
