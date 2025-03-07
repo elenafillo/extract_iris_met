@@ -1,0 +1,39 @@
+#!/bin/bash
+#SBATCH -p par-single
+#SBATCH --mem=75GB
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --array=1-12
+#SBATCH --job-name=2015NA
+#SBTACH --output=2015NA
+#SBATCH --error=2015NA_E
+#SBATCH -t 4:00:00
+
+module purge
+module load jaspy
+
+
+num=$(expr ${SLURM_ARRAY_TASK_ID})
+
+
+
+month=$(( num % 12))
+
+
+start_year=2015
+yearnum=$((num/12))
+year=$((start_year + yearnum))
+
+echo $year
+echo $month
+
+## Extract the separate regions for north africa
+python /home/users/elenafi/satellite_met_scripts/satellite_met_1b1_fixed_v3.py $year $month NA
+
+## Join the separate regions for north africa 
+#python /home/users/elenafi/satellite_met_scripts/satellite_met_join_v2.py $year $month
+
+
+
+
+## sacct -a -j 3352965 --format=user%10,jobname%10,node%10,start%10,end%10,elapsed%10,MaxRS
