@@ -25,9 +25,32 @@ In each folder, the 3-hourly files have format `MO{year}{month}{day}{day_period}
 
 ## Step-by-step of extracting met
 1. Define domain you want to extract, and which regions it covers [To Do - Add visualisations on notebook]
-2. Use "extract_one_by_one" file to unzip any necessary files, copy them to scratch, extract the necessary data from each region and save it, separately
-3. Use "join_regions" to join the extracted regions, to cover your specified domain. Currently the setup can join two regions (along the latitude axis, ie side by side, or along the longitude axis, ie on top of each other), or four regions (forming a rectangle).
+2. Use `extract_one_by_one` file to unzip any necessary files, copy them to scratch, extract the necessary data from each region and save it, separately
+3. Use `join_regions` to join the extracted regions, to cover your specified domain. Currently the setup can join two regions (along the latitude axis, ie side by side, or along the longitude axis, ie on top of each other), or four regions (forming a rectangle).
+4. Transfer data to a different server (eg BluePebble)
 
+### 1. Defining domain
+Check the notebook for examples
+
+### 2.
+### 3.
+### 4. Transferring data
+  You should only need to set up the ssh keys once! 
+  1. Copy your JASMIN private key from your local computer to `/home/user/ab11111/.ssh` (you can drag the file into the VSCode file tree, and then move it to the .ssh folder)
+  2. Change the permissions on the private key  `chmod 600 /user/home/ab11111/.ssh/id_ecdsa_jasmin`
+  3. Add the private key
+     ```
+     >> eval $(ssh-agent -s)
+     Agent pid 1942693
+     >> ssh-add /user/home/ab11111/.ssh/id_ecdsa_jasmin
+     Enter passphrase for /user/home/ab11111/.ssh/id_ecdsa_jasmin:
+    ```
+  4. From the BP terminal, transfer the data using rsync
+     ```
+     rsync -ra --info=progress2 -v your_jasmin_username@xfer-vm-01.jasmin.ac.uk:/gws/nopw/j04/acrg/acrg/elenafi/satellite_met/NORTHAFRICA_Met_201403.nc /group/chemistry/acrg/met_archive/UM/NORTHAFRICA/
+     ```
+     
+    
 
 ## Variable lists:
 | variable_set    | Variable Number | Name | Notes |
