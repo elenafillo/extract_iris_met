@@ -19,6 +19,9 @@ from met_functions import *
 
 print("getting some levels of met")
 
+"""
+## 1. Parse arguments and set up
+"""
 
 parser = argparse.ArgumentParser(description='get big met')
 parser.add_argument('year', metavar='y', type=int, nargs='+',
@@ -27,6 +30,7 @@ parser.add_argument('month', metavar='m', type=int, help='month to process')
 parser.add_argument('regions', metavar='r', help='regions to process')
 args = parser.parse_args()
 
+# a_day_only runs a debugging single day just to check it all works, but can probs be removed
 a_day_only = False
 
 paths = get_default_paths()
@@ -34,11 +38,10 @@ homefolder = paths["stratch"]
 #homefolder = "/work/scratch-nopw2/elenafi/"
 
 
-
-        
+      
 regions = args.regions
 print(regions)
-if regions == "all":
+if regions == "SA":
     regions = [9, 10, 13, 6]
 if regions == "NA":
     regions = [6,2,3,7]
@@ -46,12 +49,8 @@ if regions == "NA":
     
 # NorthAfrica regions: [2,6] if using only obs, [2,6,3,7] if using wider edge
 
-# reference footprint
-fp = "/home/users/elenafi/satellite_met_scripts/GOSAT-BRAZIL-column_SOUTHAMERICA_201801.nc"
-fp = "/home/users/elenafi/satellite_met_scripts/GOSAT-SAHARA-column_NORTHAFRICA_201611.nc"
 
-fp = xr.load_dataset(fp)
-domain = "NORTHAFRICA"
+
 print("getting args and setting up")
 # define start and end date (month by month)
 all_months = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
@@ -65,9 +64,31 @@ if a_day_only:
     date = str(year)+month  +"1" # use this when debugging only with one day
     #end_date = start_date  #use this when debugging only with one day
     end_date = start_date  + np.timedelta64(10, 'D')
-#fp = fp.sel(time=slice(start_date, end_date))
+
 print("getting met for the period "+str(start_date) + " - " + str(end_date))
 
+"""
+## 2. Select the latitudes and longitudes to be extracted
+At the moment, the way this is done is by loading a reference footprint for the domain and taking its latitude and longitude.
+To make the domain larger than this, there are the 
+edge_size_lat and edge_size_lon parameters, which indicate how many latitude and longitude gridcells need to be added in each direction eg
+    # edge_size_lat  = [extra gridcells to the south, extra gridcells to the north]
+    # edge_size_lon  = [extra gridcells to the west, extra gridcells to the east]
+    edge_size_lat = [100,100] 
+    edge_size_lon = [85, 100]
+
+"""
+    
+
+# reference footprint
+if regions == "SA":
+    fp = "/home/users/elenafi/satellite_met_scripts/GOSAT-BRAZIL-column_SOUTHAMERICA_201801.nc"
+    domain = "SOUTHAMERICA"
+if regions == "NA":
+    domain = "NORTHAFRICA"
+    fp = "/home/users/elenafi/satellite_met_scripts/GOSAT-SAHARA-column_NORTHAFRICA_201611.nc"
+
+fp = xr.load_dataset(fp)
 
 latitudes = list(fp.lat.values)
 longitudes = list(fp.lon.values)
@@ -102,6 +123,9 @@ latitudes = np.array(sorted(latitudes + [np.max(latitudes)+delta_lat*i for i in 
 
 fp.close()
 
+"""
+## 3.  Set up the parameters of the meteorology files
+"""
 
 # find file naming convention for date
 if year==2011 or year==2012 or (year == 2013 and month in ["01", "02", "03", "04"]):
@@ -155,7 +179,14 @@ region_bounds = {1: [79.921875, 89.953125, -179.92969, 179.92969],
  8: [-25.078125, 25.078125, -179.92969, 179.92969],
  9: [-25.078125, 25.078125, -135.07031, -44.929688]}
  
- 
+ # 
+
+"""
+## 4.  Extract the met for each region
+
+the load_iris opens the .pp files, copying them to scratch and unzipping them if necessary
+
+"""
 
 with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     for reg in regions:
@@ -171,7 +202,7 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
         txtfile.write(date + str(reg) + "  " +str(datetime.datetime.now()) + "starting \n")
         txtfile.close()  
         
-        
+        # some variables have slightly different coord systems for some reason?
         most_variables = xr.combine_by_coords([xr.DataArray.from_iris(cube[i]) for i in [0,1,3,4,5,7]]).sel(model_level_number=levels)
         x_wind = xr.combine_by_coords([xr.DataArray.from_iris(cube[8])], compat="override").sel(model_level_number=levels)
         y_wind = xr.combine_by_coords([xr.DataArray.from_iris(cube[9])], compat="override").sel(model_level_number=levels)
