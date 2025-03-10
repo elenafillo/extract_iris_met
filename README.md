@@ -35,19 +35,18 @@ Check the notebook for examples
 ### 2.
 ### 3.
 ### 4. Transferring data
-  You should only need to set up the ssh keys once! 
   1. Copy your JASMIN private key from your local computer to `/home/user/ab11111/.ssh` (you can drag the file into the VSCode file tree, and then move it to the .ssh folder)
   2. Change the permissions on the private key  `chmod 600 /user/home/ab11111/.ssh/id_ecdsa_jasmin`
-  3. Add the private key
+  3. Add the private key (you might need to do this step every time?)
      ```
      >> eval $(ssh-agent -s)
      Agent pid 1942693
      >> ssh-add /user/home/ab11111/.ssh/id_ecdsa_jasmin
      Enter passphrase for /user/home/ab11111/.ssh/id_ecdsa_jasmin:
-    ```
-  4. From the BP terminal, transfer the data using rsync
+
+  4. From the BP terminal, transfer the data using rsync (rsync "synchronises" a destination folder from a source folder, doing a smart copy - it only copies files that aren't already in the destination folder. 
      ```
-     rsync -ra --info=progress2 -v your_jasmin_username@xfer-vm-01.jasmin.ac.uk:/gws/nopw/j04/acrg/acrg/elenafi/satellite_met/NORTHAFRICA_Met_201403.nc /group/chemistry/acrg/met_archive/UM/NORTHAFRICA/
+     rsync -ra --info=progress2 -v your_jasmin_username@xfer-vm-01.jasmin.ac.uk:/gws/nopw/j04/acrg/acrg/elenafi/satellite_met/NORTHAFRICA/ /group/chemistry/acrg/met_archive/UM/NORTHAFRICA/
      ```
      
     
