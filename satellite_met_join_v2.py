@@ -11,6 +11,8 @@ import gzip
 import dask
 import shutil
 import argparse
+import yaml
+from dask.diagnostics import ProgressBar
 
 """
 ## 1. Parse arguments and set up
@@ -67,7 +69,12 @@ if domain == "NORTHAFRICA":
     (6, 3): 'not_connected'}   
 
 #homefolder = "/gws/nopw/j04/acrg/acrg/elenafi/satellite_met/"
-homefolder = "/work/scratch-nopw2/elenafi/files/"
+# Load yaml and extract relevant details for the domain of interest
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
+homefolder = config.get("scratch_path", "")
+homefolder = os.path.join(homefolder, "files/")
 # check that all files to join have been created
 files = glob.glob(homefolder+domain+"_Met_"+str(year)+month+"_*")
 for reg in regions:
@@ -79,6 +86,13 @@ print("all necessary region files exist")
 
 region_bounds = get_saved_region_bounds()
  
+# UM world regions
+# figure out how to deal with 1 and 14 
+region_grid = [
+    [2, 3, 4, 5],
+    [6, 7, 8, 9],
+    [10, 11, 12, 13]
+]
  
 with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     lat_arrays = []
@@ -118,25 +132,19 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
       except:
         print(f"no attr {attr}")
         continue
-    met.attrs["author"] = "Elena Fillola (ef17148)"
+    met.attrs["author"] = config.get("met_extract_author", "")
     met.attrs["created"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     met.attrs["transformations"] = "interpolated linearly in space to NAME resolution"#, interpolated linearly in time from 3-hourly to hourly"
     print("at the end", met)
     
     filename = "/gws/nopw/j04/acrg/acrg/elenafi/satellite_met/"+domain+"_Met_"+str(year)+month+".nc"
     print("saving", filename)
-    met.load().to_netcdf(filename) 
+
+    with ProgressBar():
+        met.load().to_netcdf(filename) 
     file_stats = os.stat(filename)
     print(f'Saved! File Size in MegaBytes is {file_stats.st_size / (1024 * 1024)}')
 
 if args.delete_files:
     os.system("rm -r " + homefolder+domain+"_Met_"+str(year)+month+"_*")
             
-
-
-
-
-
-
-
-

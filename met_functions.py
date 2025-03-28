@@ -11,10 +11,13 @@ import gzip
 import dask
 import shutil
 import argparse
+import yaml
 
 
 def get_default_paths():
-    stratch = "/work/scratch-nopw2/elenafi/"
+    # Moving all hard-coded locations to config.yaml.
+    # To remove this function as soon as I've finished with satellite_met_join_v2.py
+    stratch = "/work/scratch-nopw2/jeff/"
 
     paths = {"stratch":stratch}
 
@@ -43,11 +46,6 @@ def get_saved_region_bounds():
         9: [-25.078125, 25.078125, -135.07031, -44.929688]}
     """
     region_bounds =    {1: [79.921875, 89.953125, 0.0703125, -0.0703125],
-        10: [-80.015625, -24.984375, -45.070312, 45.070312],
-        11: [-80.015625, -24.984375, 44.929688, 135.07031],
-        12: [-80.015625, -24.984375, 134.92969, -134.92969],
-        13: [-80.015625, -24.984375, -135.07031, -44.929688],
-        14: [-89.953125, -79.921875, 0.0703125, -0.0703125],
         2: [24.984375, 80.015625, -45.070312, 45.070312],
         3: [24.984375, 80.015625, 44.929688, 135.07031],
         4: [24.984375, 80.015625, 134.92969, -134.92969],
@@ -55,7 +53,13 @@ def get_saved_region_bounds():
         6: [-25.078125, 25.078125, -45.070312, 45.070312],
         7: [-25.078125, 25.078125, 44.929688, 135.07031],
         8: [-25.078125, 25.078125, 134.92969, -134.92969],
-        9: [-25.078125, 25.078125, -135.07031, -44.929688]}
+        9: [-25.078125, 25.078125, -135.07031, -44.929688],
+        10: [-80.015625, -24.984375, -45.070312, 45.070312],
+        11: [-80.015625, -24.984375, 44.929688, 135.07031],
+        12: [-80.015625, -24.984375, 134.92969, -134.92969],
+        13: [-80.015625, -24.984375, -135.07031, -44.929688],
+        14: [-89.953125, -79.921875, 0.0703125, -0.0703125],
+        }
 
     return region_bounds
 
@@ -106,9 +110,14 @@ def load_iris(filepath, Mk, date, vars, num, homefolder):
         nhomefiles = len(homefiles)
         #print(list(set([os.path.basename(f).replace(".gz", "") for f in files]) - set([os.path.basename(f) for f in homefiles])))
         print(len(homefiles), len(files))
+
+        # Load config.yaml to save to updates.txt
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+        scripts_text = config.get("scripts_text_save_location", "")
         if len(homefiles)==len(files):
-            txtfile = open("/home/users/elenafi/satellite_met_scripts/updates.txt", "a")
-            txtfile.write(date + str(num) + "  " + str(datetime.datetime.now()) + "loading data from scratch \n")
+            txtfile = open(scripts_text, "a+")
+            txtfile.write(date + str(num) + "  " + str(datetime.datetime.now()) + " --- loading data from scratch --- \n")
             txtfile.close()   
             print("needed files are already in homefolder. Loading without copying")
             bad_files = [homefolder+f for f in bad_files]
@@ -116,10 +125,12 @@ def load_iris(filepath, Mk, date, vars, num, homefolder):
             if len(homefiles) < nhomefiles:
                 print(str(nhomefiles-len(homefiles)), " files removed")
             try:
+                print("attempt loading")
                 loaded = iris.load(homefiles, vars, callback=remove_coord_callback)
-                txtfile = open("/home/users/elenafi/satellite_met_scripts/updates.txt", "a")
+                txtfile = open(scripts_text, "a")
                 txtfile.write(date + str(num) + "  " + str(datetime.datetime.now()) + " data loaded (directly from homefolder)\n")
                 txtfile.close()  
+                print("Loaded")
             except Exception as e:
                 print("something failed: ", e )
         try:
