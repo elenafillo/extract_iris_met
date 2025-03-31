@@ -14,6 +14,8 @@ import argparse
 import yaml
 from dask.diagnostics import ProgressBar
 
+from met_functions import *
+
 """
 ## 1. Parse arguments and set up
 """
@@ -22,15 +24,21 @@ print("starting joining script")
 parser = argparse.ArgumentParser(description='get big met')
 parser.add_argument('year', metavar='y', type=int, nargs='+',
                     help='year to process')
-parser.add_argument('month', metavar='m', type=int, help='month to process')
+parser.add_argument('month', metavar='m', type=int, help='month to process eg "00" for January')
+parser.add_argument('regions', metavar='r', help='regions to process eg "NA" for North Africa')
 parser.add_argument('--delete_files', default=False)
 args = parser.parse_args()
 
 # reference footprint
 #fp = "/home/users/elenafi/satellite_met_scripts/GOSAT-BRAZIL-column_SOUTHAMERICA_201801.nc"
 
+# Load yaml and extract relevant details for the domain of interest
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
 #fp = xr.open_dataset(fp)
-domain = "NORTHAFRICA"
+region_key = args.regions
+domain = config["domains"].get(region_key)["domain_name"]
 print("getting args and setting up")
 # define start and end date (month by month)
 all_months = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
@@ -137,7 +145,7 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     met.attrs["transformations"] = "interpolated linearly in space to NAME resolution"#, interpolated linearly in time from 3-hourly to hourly"
     print("at the end", met)
     
-    filename = "/gws/nopw/j04/acrg/acrg/elenafi/satellite_met/"+domain+"_Met_"+str(year)+month+".nc"
+    filename = config.get("met_save_directory", "")+domain+"_Met_"+str(year)+month+".nc"
     print("saving", filename)
 
     with ProgressBar():

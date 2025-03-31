@@ -3,6 +3,8 @@ scripts_text_save_location: "/home/users/jeff/satellite_met_scripts/updates.txt"
 
 scratch_path: "/work/scratch-nopw2/jeff/"
 
+met_save_directory: "/gws/nopw/j04/acrg/acrg/jeff/satellite_met/"
+
 reference_footprints_directory: "/gws/nopw/j04/acrg/elenafi/example_footprints"
 
 # removing hard-coding of met.attrs["author"] = "Elena Fillola (ef17148)" in satellite_met_join_v2.py
@@ -12,12 +14,12 @@ domains:
   SA:
     domain_name: "SOUTHAMERICA"
     footprint: "GOSAT-BRAZIL-column_SOUTHAMERICA_201801.nc"
-    world_regions_codes: [9, 10, 13, 6]
+    world_regions_codes: [6, 9, 10, 13]
     
   NA:
     domain_name: "NORTHAFRICA"
     footprint: "GOSAT-SAHARA-column_NORTHAFRICA_201611.nc"
-    world_regions_codes: [2, 3, 6,7]
+    world_regions_codes: [2, 3, 6, 7]
     
   CHINA:
     domain_name: "CHINA"
