@@ -30,12 +30,12 @@ print("getting some levels of met")
 parser = argparse.ArgumentParser(description='get big met')
 parser.add_argument('year', metavar='y', type=int, nargs='+',
                     help='year to process')
-parser.add_argument('month', metavar='m', type=int, help='month to process')
-parser.add_argument('regions', metavar='r', help='regions to process')
+parser.add_argument('month', metavar='m', type=int, help='month to process eg "00" for January')
+parser.add_argument('regions', metavar='r', help='regions to process eg "NA" for North Africa')
 args = parser.parse_args()
 
 # a_day_only runs a debugging single day just to check it all works, but can probs be removed
-a_day_only = True
+a_day_only = False
 
 # Load yaml and extract relevant details for the domain of interest
 with open("config.yaml", "r") as f:
@@ -85,7 +85,7 @@ end_date = start_date  + np.timedelta64(days_in_month[args.month], 'D')
 if a_day_only:
     date = str(year)+month  +"1" # use this when debugging only with one day
     #end_date = start_date  #use this when debugging only with one day
-    end_date = start_date  + np.timedelta64(1, 'D')
+    end_date = start_date  + np.timedelta64(24, 'h')
 
 print("getting met for the period "+str(start_date) + " - " + str(end_date))
 
@@ -213,100 +213,105 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
             print("Try load_iris", flush=True)
             cube = load_iris(filepath, Mk, date, vars, reg, homefolder)
             print("  ...load_iris successful!", flush=True)
+
+            print(f"Region {reg} loaded")
+
+            txtfile = open(scripts_text, "a")
+            txtfile.write(date + str(reg) + "  " +str(datetime.datetime.now()) + f"starting for {domain_name}, {args.year[0]} {args.month}, a_day_only {a_day_only}, region {reg}\n")
+            txtfile.close()  
+        
+            # some variables have slightly different coord systems for some reason?
+            most_variables = xr.combine_by_coords([xr.DataArray.from_iris(cube[i]) for i in [0,1,3,4,5,7]]).sel(model_level_number=levels)
+            x_wind = xr.combine_by_coords([xr.DataArray.from_iris(cube[8])], compat="override").sel(model_level_number=levels)
+            y_wind = xr.combine_by_coords([xr.DataArray.from_iris(cube[9])], compat="override").sel(model_level_number=levels)
+            del cube 
+            
+            all_variables = xr.combine_by_coords([
+                most_variables,
+                x_wind.interp(latitude=most_variables.latitude.values, longitude=most_variables.longitude.values),
+                y_wind.interp(latitude=most_variables.latitude.values, longitude=most_variables.longitude.values)
+            ], compat="override")
+            
+            del most_variables, x_wind, y_wind
+            
+            all_variables.load()
+            
+
+            txtfile = open(scripts_text, "a")
+            txtfile.write(date + str(reg) + "  " +str(datetime.datetime.now()) + "dataset created successfully \n")
+            txtfile.close()  
+            
+            all_variables = all_variables.assign_coords(longitude=(((all_variables.longitude + 180) % 360) - 180))
+
+            print(all_variables)
+
+            if "time" not in list(all_variables.sizes.keys()):
+                print("stacking time variables")
+                all_variables = all_variables.stack(newtime = ["forecast_period", "forecast_reference_time"])
+                
+                all_variables = all_variables.swap_dims({"newtime":"time"})
+                
+                all_variables = all_variables.drop_vars(['forecast_period', "forecast_reference_time", "newtime"])
+                print("After dropping vars")
+            else:
+                all_variables = all_variables.transpose("model_level_number", "latitude", "longitude", "time", ...)
+
+            print("Still running")
+            # interpolating to correct resolution, then slicing back to region domain
+            all_variables = all_variables.interp(latitude=latitudes,longitude=longitudes)
+            print("Interp complete")
+            all_variables = all_variables.sel(latitude=slice(region_bounds[reg][0], region_bounds[reg][1]), longitude=slice(region_bounds[reg][2], region_bounds[reg][3]))
+            
+            
+            interpolated = all_variables.sortby("time")
+            # NOT INTERPOLATING HOURLY???
+            #interpolated = interpolated.resample(time="1h").interpolate("linear")
+            print("Interpolated!!")
+            print(interpolated)
+                
+            txtfile = open(scripts_text, "a")
+            txtfile.write(date + str(reg) + "  " + str(datetime.datetime.now()) + "interpolated! chunking \n")
+            txtfile.write(str(len(interpolated.longitude)) + "\n")
+            txtfile.close()  
+            
+            interpolated = interpolated.chunk("auto")
+            
+            print(interpolated)
+                
+            txtfile = open(scripts_text, "a")
+            txtfile.write(date + str(reg) + "  " + str(datetime.datetime.now()) + "chunked! saving \n")
+            txtfile.write(str(len(interpolated.longitude)) + "\n")
+            txtfile.close()  
+            
+            #interpolated.load()
+            print("now about to save")
+            filename = homefolder+"files/"+domain_name+"_Met_"+str(year)+month+"_"+str(reg)+".nc"
+            
+            print(interpolated.dims)
+            print(interpolated.coords)
+            print(interpolated.data_vars)
+
+            print("saving...")
+            # Track progress
+            with ProgressBar():
+                interpolated.to_netcdf(filename)            
+
+            print("saved", flush=True)
+            txtfile = open(scripts_text, "a")
+            txtfile.write(date + str(reg) + "  " + str(datetime.datetime.now()) + f"saved successfully at {filename} \n")
+            txtfile.close()  
+
+            print(f"--- Finished region {reg} ---")
+
+            del interpolated
+            del all_variables
         except Exception as e:
             print(f"Skipping region {reg} due to error: {e}", flush=True)
+            traceback.print_exc()
+            with open(scripts_text, "a") as txtfile:
+                txtfile.write(f"{date}{reg}  {datetime.datetime.now()} error: {e}\n")
             continue
-        print(f"Region {reg} loaded")
 
-        txtfile = open(scripts_text, "a")
-        txtfile.write(date + str(reg) + "  " +str(datetime.datetime.now()) + f"starting for {domain_name}, {args.year[0]} {args.month}, a_day_only {a_day_only}\n")
-        txtfile.close()  
-        
-        # some variables have slightly different coord systems for some reason?
-        most_variables = xr.combine_by_coords([xr.DataArray.from_iris(cube[i]) for i in [0,1,3,4,5,7]]).sel(model_level_number=levels)
-        x_wind = xr.combine_by_coords([xr.DataArray.from_iris(cube[8])], compat="override").sel(model_level_number=levels)
-        y_wind = xr.combine_by_coords([xr.DataArray.from_iris(cube[9])], compat="override").sel(model_level_number=levels)
-        del cube 
-        
-        all_variables = xr.combine_by_coords([
-            most_variables,
-            x_wind.interp(latitude=most_variables.latitude.values, longitude=most_variables.longitude.values),
-            y_wind.interp(latitude=most_variables.latitude.values, longitude=most_variables.longitude.values)
-        ], compat="override")
-        
-        del most_variables, x_wind, y_wind
-        
-        all_variables.load()
-        
-
-        txtfile = open(scripts_text, "a")
-        txtfile.write(date + str(reg) + "  " +str(datetime.datetime.now()) + "dataset created successfully \n")
-        txtfile.close()  
-        
-        all_variables = all_variables.assign_coords(longitude=(((all_variables.longitude + 180) % 360) - 180))
-
-        print(all_variables)
-
-        if "time" not in list(all_variables.sizes.keys()):
-            print("stacking time variables")
-            all_variables = all_variables.stack(newtime = ["forecast_period", "forecast_reference_time"])
-            
-            all_variables = all_variables.swap_dims({"newtime":"time"})
-            
-            all_variables = all_variables.drop_vars(['forecast_period', "forecast_reference_time", "newtime"])
-            print("After dropping vars")
-        else:
-            all_variables = all_variables.transpose("model_level_number", "latitude", "longitude", "time", ...)
-
-        print("Still running")
-        # interpolating to correct resolution, then slicing back to region domain
-        all_variables = all_variables.interp(latitude=latitudes,longitude=longitudes)
-        print("Interp complete")
-        all_variables = all_variables.sel(latitude=slice(region_bounds[reg][0], region_bounds[reg][1]), longitude=slice(region_bounds[reg][2], region_bounds[reg][3]))
-        
-        
-        interpolated = all_variables.sortby("time")
-        # NOT INTERPOLATING HOURLY???
-        #interpolated = interpolated.resample(time="1h").interpolate("linear")
-        print("Interpolated!!")
-        print(interpolated)
-            
-        txtfile = open(scripts_text, "a")
-        txtfile.write(date + str(reg) + "  " + str(datetime.datetime.now()) + "interpolated! chunking \n")
-        txtfile.write(str(len(interpolated.longitude)) + "\n")
-        txtfile.close()  
-        
-        interpolated = interpolated.chunk("auto")
-        
-        print(interpolated)
-            
-        txtfile = open(scripts_text, "a")
-        txtfile.write(date + str(reg) + "  " + str(datetime.datetime.now()) + "chunked! saving \n")
-        txtfile.write(str(len(interpolated.longitude)) + "\n")
-        txtfile.close()  
-        
-        #interpolated.load()
-        print("now about to save")
-        filename = homefolder+"files/"+domain_name+"_Met_"+str(year)+month+"_"+str(reg)+".nc"
-        
-        print(interpolated.dims)
-        print(interpolated.coords)
-        print(interpolated.data_vars)
-
-        print("saving...")
-        # Track progress
-        with ProgressBar():
-            interpolated.to_netcdf(filename)            
-
-        print("saved", flush=True)
-        txtfile = open(scripts_text, "a")
-        txtfile.write(date + str(reg) + "  " + str(datetime.datetime.now()) + f"saved successfully at {filename} \n")
-        txtfile.close()  
-
-
-        del interpolated
-        del all_variables
-        print("--- Finished region {reg}---")
     print("---- All processing complete ---")
 print("----- Script finished successfully -----")
 

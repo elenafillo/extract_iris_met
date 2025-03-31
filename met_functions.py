@@ -165,7 +165,7 @@ def remove_coord_callback(cube, field, filename):
 def daterange(start_date, end_date, a_day_only=False):
     start_date = np.datetime64(start_date)
     if a_day_only:
-        end_date = np.datetime64(end_date) + np.timedelta64(24, 'h') # use this when debugging only with one day
+        end_date = np.datetime64(start_date) + np.timedelta64(24, 'h') # use this when debugging only with one day
     else:
         end_date = np.datetime64(end_date)
     dates = []
