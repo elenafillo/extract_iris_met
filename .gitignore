@@ -1,0 +1,11 @@
+# Logs and databases #
+######################
+\logs
+
+
+
+# OS generated files #
+######################
+\.cache
+\.ipynb_checkpoints
+\__pycache__
