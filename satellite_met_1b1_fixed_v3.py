@@ -139,24 +139,7 @@ fp.close()
 """
 ## 3.  Set up the parameters of the meteorology files
 """
-
-# find file naming convention for date
-if year==2011 or year==2012 or (year == 2013 and month in ["01", "02", "03", "04"]):
-    Mk = 6
-elif (year == 2013 and month in ["05", "06", "07","08", "09", "10", "11", "12"]) or (year == 2014 and month in ["01", "02", "03", "04", "05", "06"]):
-    Mk = 7
-elif (year == 2014 and month in ["07", "08", "09", "10", "11", "12"]) or (year == 2015 and month in ["01", "02", "03", "04", "05", "06", "07"]):
-    Mk = 8
-elif (year == 2015 and month in ["08", "09", "10", "11", "12"]) or (year == 2016) or (year == 2017 and month in ["01", "02", "03", "04", "05", "06"]):
-    Mk = 9
-elif (year == 2017 and month in ["07", "08", "09", "10", "11", "12"]) or (year > 2017):
-    Mk = 10
-else:
-    print("No Mk found for this year and month")
-    raise ValueError(f"No Mk version found for year={year}, month={month}")
-
-## Mk11 - 2022 06 onwards
-    
+Mk = get_Mk(year, month)
     
 if Mk == 6:
     filepath =  ["/gws/nopw/j04/name/met_archive/Global/UMG_Mk"+str(Mk)+"PT/MO", "*.UMG_Mk"+str(Mk)+"_L59PT"]
