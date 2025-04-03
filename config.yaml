@@ -1,13 +1,15 @@
-
+# Where to save the txt file summarising progress running the satellite_met_1b1_fixed_v3 script
 scripts_text_save_location: "/home/users/jeff/satellite_met_scripts/updates.txt"
 
+# Directory where to process and save world regions
 scratch_path: "/work/scratch-nopw2/jeff/"
 
+# Directory where to save the final joined met file
 met_save_directory: "/gws/nopw/j04/acrg/acrg/jeff/satellite_met/"
 
+# Directory where the reference footprint for each domain is stored
 reference_footprints_directory: "/gws/nopw/j04/acrg/elenafi/example_footprints"
 
-# removing hard-coding of met.attrs["author"] = "Elena Fillola (ef17148)" in satellite_met_join_v2.py
 met_extract_author: "Jeff Clark (kr21883)"
 
 domains:
