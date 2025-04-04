@@ -86,7 +86,6 @@ def find_overlapping_regions(min_lat, max_lat, min_lon, max_lon):
 
 
 def load_iris(filepath, Mk, date, vars, num, homefolder):
-    print("In load iris")
     bad_files = ["MO201402011500.UMG_Mk7_I_L59PT9.pp"] 
     # mk10 files are already unzipped, can load directly - changed, trying this
     if Mk == 10:
@@ -130,7 +129,6 @@ def load_iris(filepath, Mk, date, vars, num, homefolder):
                 txtfile = open(scripts_text, "a")
                 txtfile.write(date + str(num) + "  " + str(datetime.datetime.now()) + " data loaded (directly from homefolder)\n")
                 txtfile.close()  
-                print("Loaded")
             except Exception as e:
                 print("something failed: ", e )
         try:
@@ -193,3 +191,16 @@ def get_Mk(year, month):
         print("No Mk found for this year and month")
         raise ValueError(f"No Mk version found for year={year}, month={month}")
     return Mk
+
+def get_edge_size(domain, size_type):
+
+    # Retrieve the domain or global default edge size from the yaml configuration file
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+
+    default_edge_size = config.get('default_edge_size', [100, 100])
+
+    try:
+        return config['domains'][domain].get(size_type, default_edge_size)
+    except KeyError:
+        return default_edge_size

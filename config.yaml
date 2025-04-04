@@ -12,6 +12,9 @@ reference_footprints_directory: "/gws/nopw/j04/acrg/elenafi/example_footprints"
 
 met_extract_author: "Jeff Clark (kr21883)"
 
+# Default edge size for latitude and longitude if not specified per domain
+default_edge_size: [100, 100]
+
 domains:
   SA:
     domain_name: "SOUTHAMERICA"
@@ -22,6 +25,8 @@ domains:
     domain_name: "NORTHAFRICA"
     footprint: "GOSAT-SAHARA-column_NORTHAFRICA_201611.nc"
     world_regions_codes: [2, 3, 6, 7]
+    edge_size_lat: [100,100]
+    edge_size_lon: [85, 100]
     
   CHINA:
     domain_name: "CHINA"

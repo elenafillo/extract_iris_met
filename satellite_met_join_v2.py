@@ -12,7 +12,6 @@ import dask
 import shutil
 import argparse
 import yaml
-from dask.diagnostics import ProgressBar
 
 from met_functions import *
 
@@ -148,8 +147,7 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     filename = config.get("met_save_directory", "")+domain+"_Met_"+str(year)+month+".nc"
     print("saving", filename)
 
-    with ProgressBar():
-        met.load().to_netcdf(filename) 
+    met.load().to_netcdf(filename) 
     file_stats = os.stat(filename)
     print(f'Saved! File Size in MegaBytes is {file_stats.st_size / (1024 * 1024)}')
 

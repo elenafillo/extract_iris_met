@@ -15,8 +15,6 @@ import argparse
 from met_functions import *
 import yaml
 import traceback
-from tqdm import tqdm
-from dask.diagnostics import ProgressBar
 
 
 
@@ -40,6 +38,7 @@ a_day_only = False
 # Load yaml and extract relevant details for the domain of interest
 with open("config.yaml", "r") as f:
     config = yaml.safe_load(f)
+
 
 homefolder = config.get("scratch_path", "")
 
@@ -123,8 +122,12 @@ latitudes = np.array(fp.lat.values)
 ## another way to do it - select around the min/max locations of measurements
 fp = fp.sel(lon=slice(np.min(fp.release_lon), np.max(fp.release_lon)), lat=slice(np.min(fp.release_lat), np.max(fp.release_lat)))
 
-edge_size_lat = [100,100]
-edge_size_lon = [85, 100]
+
+
+edge_size_lat = get_edge_size(region_key, 'edge_size_lat')
+edge_size_lon = get_edge_size(region_key, 'edge_size_lon')
+
+print(f"Edge size for {region_key} - Latitude: {edge_size_lat}, Longitude: {edge_size_lon}")
 
 latitudes = list(fp.lat.values)
 longitudes = list(fp.lon.values)
@@ -173,14 +176,11 @@ the load_iris opens the .pp files, copying them to scratch and unzipping them if
 
 print("**** Now ready to do main loop ****")
 with dask.config.set(**{'array.slicing.split_large_chunks': True}):
-    for reg in tqdm(regions, desc="Processing regions"):
+    for reg in regions:
         print(f"Processing region {reg}")
         try:
-            print("Try load_iris", flush=True)
             cube = load_iris(filepath, Mk, date, vars, reg, homefolder)
-            print("  ...load_iris successful!", flush=True)
-
-            print(f"Region {reg} loaded")
+            print(f"region {reg} loaded")
 
             txtfile = open(scripts_text, "a")
             txtfile.write(date + str(reg) + "  " +str(datetime.datetime.now()) + f"starting for {domain_name}, {args.year[0]} {args.month}, a_day_only {a_day_only}, region {reg}\n")
@@ -212,27 +212,24 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
             print(all_variables)
 
             if "time" not in list(all_variables.sizes.keys()):
-                print("stacking time variables")
                 all_variables = all_variables.stack(newtime = ["forecast_period", "forecast_reference_time"])
                 
                 all_variables = all_variables.swap_dims({"newtime":"time"})
                 
                 all_variables = all_variables.drop_vars(['forecast_period', "forecast_reference_time", "newtime"])
-                print("After dropping vars")
             else:
                 all_variables = all_variables.transpose("model_level_number", "latitude", "longitude", "time", ...)
 
-            print("Still running")
             # interpolating to correct resolution, then slicing back to region domain
             all_variables = all_variables.interp(latitude=latitudes,longitude=longitudes)
-            print("Interp complete")
+
             all_variables = all_variables.sel(latitude=slice(region_bounds[reg][0], region_bounds[reg][1]), longitude=slice(region_bounds[reg][2], region_bounds[reg][3]))
             
             
             interpolated = all_variables.sortby("time")
             # NOT INTERPOLATING HOURLY???
             #interpolated = interpolated.resample(time="1h").interpolate("linear")
-            print("Interpolated!!")
+            print("interpolation complete")
             print(interpolated)
                 
             txtfile = open(scripts_text, "a")
@@ -250,7 +247,7 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
             txtfile.close()  
             
             #interpolated.load()
-            print("now about to save")
+
             filename = homefolder+"files/"+domain_name+"_Met_"+str(year)+month+"_"+str(reg)+".nc"
             
             print(interpolated.dims)
@@ -258,16 +255,14 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
             print(interpolated.data_vars)
 
             print("saving...")
-            # Track progress
-            with ProgressBar():
-                interpolated.to_netcdf(filename)            
+            interpolated.to_netcdf(filename)            
 
-            print("saved", flush=True)
+            print(f"saved as {filename}", flush=True)
             txtfile = open(scripts_text, "a")
             txtfile.write(date + str(reg) + "  " + str(datetime.datetime.now()) + f"saved successfully at {filename} \n")
             txtfile.close()  
 
-            print(f"--- Finished region {reg} ---")
+            print(f"---- Finished region {reg} ----")
 
             del interpolated
             del all_variables
