@@ -175,7 +175,7 @@ the load_iris opens the .pp files, copying them to scratch and unzipping them if
 """
 with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     for reg in regions:
-        print(f"************************\n Processing for Region {region_number} \n************************")
+        print(f"************************\n Processing Region {reg} \n************************")
         try:
             cube = load_iris(filepath, Mk, date, vars, reg, homefolder)
             print(f"region {reg} loaded")
