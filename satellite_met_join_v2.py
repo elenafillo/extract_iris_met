@@ -11,6 +11,9 @@ import gzip
 import dask
 import shutil
 import argparse
+import yaml
+
+from met_functions import *
 
 """
 ## 1. Parse arguments and set up
@@ -20,15 +23,21 @@ print("starting joining script")
 parser = argparse.ArgumentParser(description='get big met')
 parser.add_argument('year', metavar='y', type=int, nargs='+',
                     help='year to process')
-parser.add_argument('month', metavar='m', type=int, help='month to process')
+parser.add_argument('month', metavar='m', type=int, help='month to process eg "00" for January')
+parser.add_argument('regions', metavar='r', help='regions to process eg "NA" for North Africa')
 parser.add_argument('--delete_files', default=False)
 args = parser.parse_args()
 
 # reference footprint
 #fp = "/home/users/elenafi/satellite_met_scripts/GOSAT-BRAZIL-column_SOUTHAMERICA_201801.nc"
 
+# Load yaml and extract relevant details for the domain of interest
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
 #fp = xr.open_dataset(fp)
-domain = "NORTHAFRICA"
+region_key = args.regions
+domain = config["domains"].get(region_key)["domain_name"]
 print("getting args and setting up")
 # define start and end date (month by month)
 all_months = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
@@ -67,7 +76,12 @@ if domain == "NORTHAFRICA":
     (6, 3): 'not_connected'}   
 
 #homefolder = "/gws/nopw/j04/acrg/acrg/elenafi/satellite_met/"
-homefolder = "/work/scratch-nopw2/elenafi/files/"
+# Load yaml and extract relevant details for the domain of interest
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
+homefolder = config.get("scratch_path", "")
+homefolder = os.path.join(homefolder, "files/")
 # check that all files to join have been created
 files = glob.glob(homefolder+domain+"_Met_"+str(year)+month+"_*")
 for reg in regions:
@@ -79,6 +93,13 @@ print("all necessary region files exist")
 
 region_bounds = get_saved_region_bounds()
  
+# UM world regions
+# figure out how to deal with 1 and 14 
+region_grid = [
+    [2, 3, 4, 5],
+    [6, 7, 8, 9],
+    [10, 11, 12, 13]
+]
  
 with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     lat_arrays = []
@@ -118,13 +139,14 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
       except:
         print(f"no attr {attr}")
         continue
-    met.attrs["author"] = "Elena Fillola (ef17148)"
+    met.attrs["author"] = config.get("met_extract_author", "")
     met.attrs["created"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     met.attrs["transformations"] = "interpolated linearly in space to NAME resolution"#, interpolated linearly in time from 3-hourly to hourly"
     print("at the end", met)
     
-    filename = "/gws/nopw/j04/acrg/acrg/elenafi/satellite_met/"+domain+"_Met_"+str(year)+month+".nc"
+    filename = config.get("met_save_directory", "")+domain+"_Met_"+str(year)+month+".nc"
     print("saving", filename)
+
     met.load().to_netcdf(filename) 
     file_stats = os.stat(filename)
     print(f'Saved! File Size in MegaBytes is {file_stats.st_size / (1024 * 1024)}')
@@ -132,11 +154,3 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
 if args.delete_files:
     os.system("rm -r " + homefolder+domain+"_Met_"+str(year)+month+"_*")
             
-
-
-
-
-
-
-
-
