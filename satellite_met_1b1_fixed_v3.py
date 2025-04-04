@@ -173,11 +173,9 @@ region_bounds = get_saved_region_bounds()
 the load_iris opens the .pp files, copying them to scratch and unzipping them if necessary
 
 """
-
-print("**** Now ready to do main loop ****")
 with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     for reg in regions:
-        print(f"Processing region {reg}")
+        print(f"************************\n Processing for Region {region_number} \n************************")
         try:
             cube = load_iris(filepath, Mk, date, vars, reg, homefolder)
             print(f"region {reg} loaded")
