@@ -6,14 +6,14 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --array=1-12
-#SBATCH --job-name=CHINA_2015_150GB_mem
-#SBATCH --output=logs/%x_logs_%A_%a_150GB_mem.out
-#SBATCH --error=logs/%x_error_logs_%A_%a_150GB_mem.err
+#SBATCH --job-name=NA_join_2013
+#SBATCH --output=logs/%x_logs_%A_%a.out
+#SBATCH --error=logs/%x_error_logs_%A_%a.err
 #SBATCH -t 04:00:00
 
 # Define domain and year
-DOMAIN="CHINA"
-START_YEAR=2015
+DOMAIN="NA"
+START_YEAR=2013
 
 module purge
 module load jaspy
@@ -29,9 +29,9 @@ echo "Month (0-11): $month"
 
 ## Extract the separate regions for this domain
 
-python /home/users/jeff/extract_iris_met/satellite_met_1b1_fixed_v3.py $year $month $DOMAIN
+#python /home/users/jeff/extract_iris_met/satellite_met_1b1_fixed_v3.py $year $month $DOMAIN
 
 ## Join the separate regions
-#python /home/users/jeff/extract_iris_met/satellite_met_join_v2.py $year $month
+python /home/users/jeff/extract_iris_met/satellite_met_join_v2.py $year $month $DOMAIN
 
 ## sacct -a -j 3352965 --format=user%10,jobname%10,node%10,start%10,end%10,elapsed%10,MaxRS

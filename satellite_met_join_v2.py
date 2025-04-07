@@ -75,10 +75,6 @@ if domain == "NORTHAFRICA":
     (3, 7): 'latitude',
     (6, 3): 'not_connected'}   
 
-#homefolder = "/gws/nopw/j04/acrg/acrg/elenafi/satellite_met/"
-# Load yaml and extract relevant details for the domain of interest
-with open("config.yaml", "r") as f:
-    config = yaml.safe_load(f)
 
 homefolder = config.get("scratch_path", "")
 homefolder = os.path.join(homefolder, "files/")
