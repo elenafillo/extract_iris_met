@@ -30,7 +30,8 @@ def get_saved_region_bounds(lon_format="default"):
     extracting the saved regions
     - 180: longitude in range -180 to 180 
     - plot: for plotting map only
-    - 360: longitude in range 0-405, wrapping around the earth (as present in the cube data). removes instability in the edge regions 
+    - extracting: set up so that extracting works
+    - as_in_cube: longitude in range 0-405, wrapping around the earth (as present exactly in the cube data). removes instability in the edge and zero regions but its odd
 
     """
 
@@ -70,7 +71,7 @@ def get_saved_region_bounds(lon_format="default"):
             12: [-80.015625, -24.984375, -179.92969, 179.92969],
             13: [-80.015625, -24.984375, -135.07031, -44.929688],
             14: [-89.953125, -79.921875, -179.92969, 179.92969]}
-    if lon_format == "360":
+    if lon_format == "as_in_cube":
         region_bounds = {1: [79.921875, 89.953125, 0.070, 359.9297],
             2: [24.984375, 80.015625, 314.929, 405.070],
             3: [24.984375, 80.015625, 44.929688, 135.07031],
@@ -85,6 +86,22 @@ def get_saved_region_bounds(lon_format="default"):
             12: [-80.015625, -24.984375, 134.92969, 225.07031],
             13: [-80.015625, -24.984375, 224.92969, 315.0703],
             14: [-89.953125, -79.921875, 0.0703125, 359.9297]}
+    if lon_format == "extracting":
+        region_bounds =    {1: [79.921875, 89.953125, 0.070, 359.9297],
+            2: [24.984375, 80.015625, -45.070312, 45.070312],
+            3: [24.984375, 80.015625, 44.929688, 135.07031],
+            4: [24.984375, 80.015625, 134.92969, 225.07031],
+            5: [24.984375, 80.015625, -135.07031, -44.929688],
+            6: [-25.078125, 25.078125, -45.070312, 45.070312],
+            7: [-25.078125, 25.078125, 44.929688, 135.07031],
+            8: [-25.078125, 25.078125, 134.92969, 225.07031],
+            9: [-25.078125, 25.078125, -135.07031, -44.929688],
+            10: [-80.015625, -24.984375, -45.070312, 45.070312],
+            11: [-80.015625, -24.984375, 44.929688, 135.07031],
+            12: [-80.015625, -24.984375, 134.92969, 225.07031],
+            13: [-80.015625, -24.984375, -135.07031, -44.929688],
+            14: [-89.953125, -79.921875, 0.0703125, 359.9297],
+            }
     return region_bounds
 
 def find_overlapping_regions(min_lat, max_lat, min_lon, max_lon):
