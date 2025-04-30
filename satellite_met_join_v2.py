@@ -35,6 +35,16 @@ args = parser.parse_args()
 with open("config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
+    
+region_key = args.regions
+domain_info = config["domains"].get(region_key)
+footprint_base = config.get("reference_footprints_directory", "")
+
+if domain_info is None:
+    raise ValueError(f"Unknown region key: {region_key}")
+
+regions = domain_info["world_regions_codes"]
+
 #fp = xr.open_dataset(fp)
 region_key = args.regions
 domain = config["domains"].get(region_key)["domain_name"]
@@ -55,8 +65,8 @@ print("merging regional data for the period "+str(start_date) + " - " + str(end_
 # get region files and how they are connected from notebook
 # if connected by "longitude", they are side-by-side, if connected by "latitude" they are on top of each other
 # NOTE this code assumes a square arrangement (2x2 regions)!
+
 if domain == "SOUTHAMERICA":
-    regions = [9, 10, 13, 6]
 
     region_pairs = {(9, 10): 'not_connected',
     (9, 13): 'latitude',
@@ -66,7 +76,6 @@ if domain == "SOUTHAMERICA":
     (13, 6): 'not_connected'}
 
 if domain == "NORTHAFRICA":
-    regions = [6, 2, 7, 3]
 
     region_pairs = {(2, 7): 'not_connected',
     (2, 6): 'latitude',
@@ -75,6 +84,13 @@ if domain == "NORTHAFRICA":
     (3, 7): 'latitude',
     (6, 3): 'not_connected'}   
 
+if domain == "CHINA":
+    region_pairs = {(2, 7): 'not_connected',
+    (3, 7): 'latitude',
+    (7, 4): 'longitude',
+    (4, 8): 'longitude',
+    (7, 8): 'latitude',
+    (7, 4): 'not_connected'}   
 
 homefolder = config.get("scratch_path", "")
 homefolder = os.path.join(homefolder, "files/")
