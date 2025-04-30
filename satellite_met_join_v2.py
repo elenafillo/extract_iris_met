@@ -85,9 +85,9 @@ if domain == "NORTHAFRICA":
     (6, 3): 'not_connected'}   
 
 if domain == "CHINA":
-    region_pairs = {(2, 7): 'not_connected',
+    region_pairs = {(3, 8): 'not_connected',
     (3, 7): 'latitude',
-    (7, 4): 'longitude',
+    (3, 4): 'longitude',
     (4, 8): 'longitude',
     (7, 8): 'latitude',
     (7, 4): 'not_connected'}   
@@ -121,6 +121,12 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
                 print("loaded both datasets, merging")
                 var1 = var1.sel(latitude=slice(region_bounds[lat_pair[0]][0], region_bounds[lat_pair[0]][1]), longitude=slice(region_bounds[lat_pair[0]][2], region_bounds[lat_pair[0]][3]))
                 var2 = var2.sel(latitude=slice(region_bounds[lat_pair[1]][0], region_bounds[lat_pair[1]][1]), longitude=slice(region_bounds[lat_pair[1]][2], region_bounds[lat_pair[1]][3]))
+                print("Var1 longitude duplicates:", var1.longitude.to_series().duplicated().any())
+                print("Var2 longitude duplicates:", var2.longitude.to_series().duplicated().any())
+                var1 = var1.isel(longitude=~var1.longitude.to_series().duplicated())
+                var2 = var2.isel(longitude=~var2.longitude.to_series().duplicated())
+                print("Var1 longitude duplicates:", var1.longitude.to_series().duplicated().any())
+                print("Var2 longitude duplicates:", var2.longitude.to_series().duplicated().any())
                 merged = xr.concat([var1, var2], dim="latitude")
                 merged = merged.sortby("latitude")
                 merged = merged.drop_duplicates(dim="latitude")
