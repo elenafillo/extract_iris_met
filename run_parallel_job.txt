@@ -2,18 +2,18 @@
 #SBATCH -p standard
 #SBATCH --account=name
 #SBATCH --qos=standard
-#SBATCH --mem=150GB
+#SBATCH --mem=200GB
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --array=1-12
-#SBATCH --job-name=CHINA_2015_150GB_mem
-#SBATCH --output=logs/%x_logs_%A_%a_150GB_mem.out
-#SBATCH --error=logs/%x_error_logs_%A_%a_150GB_mem.err
+#SBATCH --array=1,3-8,10,11
+#SBATCH --job-name=CHINA_2018
+#SBATCH --output=logs/%A_%x_logs_%a.out
+#SBATCH --error=logs/%A_%x_error_logs_%A_%a.err
 #SBATCH -t 04:00:00
 
 # Define domain and year
 DOMAIN="CHINA"
-START_YEAR=2015
+START_YEAR=2018
 
 module purge
 module load jaspy
