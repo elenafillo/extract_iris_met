@@ -92,6 +92,11 @@ if domain == "CHINA":
     (7, 8): 'latitude',
     (7, 4): 'not_connected'}   
 
+if domain == "INDIA":
+    region_pairs = {
+    (3, 7): 'latitude',
+}  
+
 homefolder = config.get("scratch_path", "")
 homefolder = os.path.join(homefolder, "files/")
 # check that all files to join have been created
