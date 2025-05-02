@@ -165,8 +165,9 @@ levels = [1]+list(range(1,60))[2::3]
 vars = ["air_pressure", "air_pressure_at_sea_level", "air_temperature", "atmosphere_boundary_layer_thickness", "surface_air_pressure", "surface_upward_sensible_heat_flux", "upward_air_velocity", "x_wind", "y_wind"]
 
 # loads the regions in format 360, where it wraps around the earth in the edge regions
-region_bounds = get_saved_region_bounds(lon_format="360")
+region_bounds = get_saved_region_bounds(lon_format="extracting")
  
+edge_regions = [1,14,4,8,12]
 
 """
 ## 4.  Extract the met for each region
@@ -206,7 +207,8 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
             txtfile.write(date + str(reg) + "  " +str(datetime.datetime.now()) + "dataset created successfully \n")
             txtfile.close()  
             
-            #all_variables = all_variables.assign_coords(longitude=(((all_variables.longitude + 180) % 360) - 180))
+            if reg not in edge_regions:
+                all_variables = all_variables.assign_coords(longitude=(((all_variables.longitude + 180) % 360) - 180))
 
             print(all_variables)
 
@@ -224,8 +226,9 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
 
             all_variables = all_variables.sel(latitude=slice(region_bounds[reg][0], region_bounds[reg][1]), longitude=slice(region_bounds[reg][2], region_bounds[reg][3]))
             
-            # convert to standard format (-180 to 180) only after slicing
-            all_variables = all_variables.assign_coords(longitude=(((all_variables.longitude + 180) % 360) - 180))
+            if reg in edge_regions:
+                # convert to standard format (-180 to 180) only after slicing
+                all_variables = all_variables.assign_coords(longitude=(((all_variables.longitude + 180) % 360) - 180))
             
             interpolated = all_variables.sortby("time")
             # NOT INTERPOLATING HOURLY???
