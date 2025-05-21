@@ -204,3 +204,24 @@ def get_edge_size(domain, size_type):
         return config['domains'][domain].get(size_type, default_edge_size)
     except KeyError:
         return default_edge_size
+
+def build_domain_grid(global_grid, regions_to_include):
+    """
+    Given the global region grid and a list of regions to include for a given domain, return a trimmed grid
+    that only contains the specified regions.
+    """
+    # Create a mask for the regions to include
+    trimmed_grid = []
+    for row in global_grid:
+        new_row = [cell if cell in regions_to_include else None for cell in row]
+        if any(cell is not None for cell in new_row):  # Keep rows with at least one valid region
+            trimmed_grid.append(new_row)
+
+    # Now trim columns (transpose → filter → transpose back)
+    transposed = list(map(list, zip(*trimmed_grid)))
+    trimmed_transposed = [
+        col for col in transposed if any(cell is not None for cell in col)
+    ]
+    final_grid = list(map(list, zip(*trimmed_transposed)))  # Back to row-major
+
+    return final_grid

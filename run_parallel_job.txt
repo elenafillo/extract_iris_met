@@ -5,15 +5,15 @@
 #SBATCH --mem=150GB
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --array=1
-#SBATCH --job-name=CHINA_join_test
+#SBATCH --array=11
+#SBATCH --job-name=INDIA_join_test_agnostic
 #SBATCH --output=logs/%A_%x_logs_%a.out
 #SBATCH --error=logs/%A_%x_error_logs_%a.err
 #SBATCH -t 04:00:00
 
 # Define domain and year
-DOMAIN="CHINA"
-START_YEAR=2014
+DOMAIN="INDIA"
+START_YEAR=2017
 
 module purge
 module load jaspy
