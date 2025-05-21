@@ -18,6 +18,8 @@ from met_functions import *
 """
 ## 1. Parse arguments and set up
 """
+DEBUG_DUPLICATES = False
+
 
 print("starting joining script") 
 parser = argparse.ArgumentParser(description='get big met')
@@ -66,36 +68,19 @@ print("merging regional data for the period "+str(start_date) + " - " + str(end_
 # if connected by "longitude", they are side-by-side, if connected by "latitude" they are on top of each other
 # NOTE this code assumes a square arrangement (2x2 regions)!
 
-if domain == "SOUTHAMERICA":
+# UM world regions
+# figure out how to deal with 1 and 14 
+global_region_grid = [
+    [2, 3, 4, 5],
+    [6, 7, 8, 9],
+    [10, 11, 12, 13]
+]
 
-    region_pairs = {(9, 10): 'not_connected',
-    (9, 13): 'latitude',
-    (9, 6): 'longitude',
-    (10, 13): 'longitude',
-    (10, 6): 'latitude',
-    (13, 6): 'not_connected'}
+# Now make it domain-specifc
+region_grid = build_domain_grid(global_region_grid, regions)
 
-if domain == "NORTHAFRICA":
+print("region grid", region_grid)
 
-    region_pairs = {(2, 7): 'not_connected',
-    (2, 6): 'latitude',
-    (6, 7): 'longitude',
-    (2, 3): 'longitude',
-    (3, 7): 'latitude',
-    (6, 3): 'not_connected'}   
-
-if domain == "CHINA":
-    region_pairs = {(3, 8): 'not_connected',
-    (3, 7): 'latitude',
-    (3, 4): 'longitude',
-    (4, 8): 'longitude',
-    (7, 8): 'latitude',
-    (7, 4): 'not_connected'}   
-
-if domain == "INDIA":
-    region_pairs = {
-    (3, 7): 'latitude',
-}  
 
 homefolder = config.get("scratch_path", "")
 homefolder = os.path.join(homefolder, "files/")
@@ -110,48 +95,54 @@ print("all necessary region files exist")
 
 region_bounds = get_saved_region_bounds()
  
-# UM world regions
-# figure out how to deal with 1 and 14 
-region_grid = [
-    [2, 3, 4, 5],
-    [6, 7, 8, 9],
-    [10, 11, 12, 13]
-]
+
  
 with dask.config.set(**{'array.slicing.split_large_chunks': True}):
+    print("Trying agnostic met joining")
     lat_arrays = []
-    for lat_pair in [k for k,v in region_pairs.items() if v == "latitude"]:
-        with  xr.open_dataset(homefolder+domain+"_Met_"+str(year)+month+"_"+str(lat_pair[0])+".nc") as var1:
-            with xr.open_dataset(homefolder+domain+"_Met_"+str(year)+month+"_"+str(lat_pair[1])+".nc") as var2:
-                print("loaded both datasets, merging")
-                var1 = var1.sel(latitude=slice(region_bounds[lat_pair[0]][0], region_bounds[lat_pair[0]][1]), longitude=slice(region_bounds[lat_pair[0]][2], region_bounds[lat_pair[0]][3]))
-                var2 = var2.sel(latitude=slice(region_bounds[lat_pair[1]][0], region_bounds[lat_pair[1]][1]), longitude=slice(region_bounds[lat_pair[1]][2], region_bounds[lat_pair[1]][3]))
-                print("Var1 longitude duplicates:", var1.longitude.to_series().duplicated().any())
-                print("Var2 longitude duplicates:", var2.longitude.to_series().duplicated().any())
-                var1 = var1.isel(longitude=~var1.longitude.to_series().duplicated())
-                var2 = var2.isel(longitude=~var2.longitude.to_series().duplicated())
-                print("Var1 longitude duplicates:", var1.longitude.to_series().duplicated().any())
-                print("Var2 longitude duplicates:", var2.longitude.to_series().duplicated().any())
-                merged = xr.concat([var1, var2], dim="latitude")
-                merged = merged.sortby("latitude")
-                merged = merged.drop_duplicates(dim="latitude")
-                lat_arrays.append(merged)
-                print(lat_pair, "merged")
-                print(merged)
-                print(np.sum(np.isnan(merged.x_wind[0,:,:,0].values)))
-                
-        """ 
-        var1 = xr.open_dataset(homefolder+domain+"_Met_"+str(year)+month+"_"+str(lat_pair[0])+".nc")
-        var2 = xr.open_dataset(homefolder+domain+"_Met_"+str(year)+month+"_"+str(lat_pair[1])+".nc")    
-        print("loaded both datasets, merging")
-        merged = xr.concat([var1, var2], dim="latitude")
-        merged = merged.drop_duplicates(dim="latitude")
-        lat_arrays.append(merged)
-        print(lat_pair, "merged")
-        """
+    for lat in region_grid:
+        lat_datasets = []
+        for region in lat:
+            file_path = f"{homefolder}{domain}_Met_{year}{month}_{region}.nc"
+
+            ds = xr.open_dataset(file_path)
+            bounds = region_bounds[region]
+            ds = ds.sel(latitude=slice(bounds[0], bounds[1]),
+                        longitude=slice(bounds[2], bounds[3]))
+            # Drop duplicate longitudes and sort
+            ds = ds.sortby("longitude")
+
+            # Get longitude values
+            longitudes = ds["longitude"].values
+
+            # Count occurrences
+            unique, counts = np.unique(longitudes, return_counts=True)
+
+            # Find duplicates
+            duplicates = unique[counts > 1]
+            
+            if duplicates.size > 0:
+                print(f"Duplicate longitude values found in region {region}: {duplicates}")
+                if DEBUG_DUPLICATES:
+                    for dup in duplicates:
+                        idxs = np.where(longitudes == dup)[0]
+                        print(f"  Value {dup} appears at indices {idxs}")
+            else:
+                print(f"No duplicate longitudes in region {region}")
+
+            ds = drop_duplicate_coords(ds, "longitude")
+            
+            lat_datasets.append(ds)
+        print(f"loaded both datasets, merging {lat}")
+        # Merge regions in the same lon row along latitude
+        merged_row = xr.concat(lat_datasets, dim="latitude")
+        merged_row = merged_row.sortby("latitude").drop_duplicates(dim="latitude")
+        merged_row = merged_row.sortby("longitude").drop_duplicates(dim="longitude")
+        lat_arrays.append(merged_row)
 
     print("fixing attrs")
-    met = xr.concat(lat_arrays, dim="longitude")
+    met = xr.concat(lat_arrays, dim="longitude")   
+
     met = met.drop_duplicates(dim="longitude")
     met = met.sortby(["latitude", "longitude", "time"])
     met = met.transpose("model_level_number", "latitude", "longitude", "time")
@@ -167,7 +158,7 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     met.attrs["transformations"] = "interpolated linearly in space to NAME resolution"#, interpolated linearly in time from 3-hourly to hourly"
     print("at the end", met)
     
-    filename = config.get("met_save_directory", "")+domain+"_Met_"+str(year)+month+".nc"
+    filename = config.get("met_save_directory", "")+domain+"_Met_"+str(year)+month+"agnostic.nc"
     print("saving", filename)
 
     met.load().to_netcdf(filename) 

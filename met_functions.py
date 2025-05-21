@@ -225,3 +225,13 @@ def build_domain_grid(global_grid, regions_to_include):
     final_grid = list(map(list, zip(*trimmed_transposed)))  # Back to row-major
 
     return final_grid
+
+def drop_duplicate_coords(ds, dim):
+    """
+    Drop duplicate coordinate values along a given dimension
+    """
+    coord_vals = ds[dim].values
+    _, unique_idx = np.unique(coord_vals, return_index=True)
+    if len(unique_idx) < len(coord_vals):
+        print(f"Dropping {len(coord_vals) - len(unique_idx)} duplicate values in '{dim}'")
+    return ds.isel({dim: sorted(unique_idx)})
