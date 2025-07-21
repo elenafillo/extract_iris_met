@@ -100,15 +100,36 @@ region_bounds = get_saved_region_bounds()
 with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     print("Trying agnostic met joining")
     lat_arrays = []
-    for lat in region_grid:
+    for column in zip(*region_grid):
         lat_datasets = []
-        for region in lat:
+        for region in column:
             file_path = f"{homefolder}{domain}_Met_{year}{month}_{region}.nc"
 
             ds = xr.open_dataset(file_path)
+            print("Min lon, max lon:", ds.longitude.min().values, ds.longitude.max().values)
+            '''
+            # If near 180 degrees, adjust the longitude values
+            if ds.longitude.min() < 0:
+                print("⏩ Converting longitudes from [-180, 180] to [0, 360]")
+                ds = ds.assign_coords(longitude=(ds.longitude % 360))
+                ds = ds.sortby("longitude")
+            print("Augmented coords: Min lon, max lon:", ds.longitude.min().values, ds.longitude.max().values)
+            '''
+
             bounds = region_bounds[region]
             ds = ds.sel(latitude=slice(bounds[0], bounds[1]),
                         longitude=slice(bounds[2], bounds[3]))
+            '''
+            if ds.sizes["latitude"] == 0 or ds.sizes["longitude"] == 0:
+                print(f" Skipping region {region}: slicing returned empty dataset")
+                print(f" Slicing bounds: {bounds}")
+                if ds.latitude.size > 0 and ds.longitude.size > 0:
+                    print(f"  Dataset lat range: {ds.latitude.min().values} to {ds.latitude.max().values}")
+                    print(f"  Dataset lon range: {ds.longitude.min().values} to {ds.longitude.max().values}")
+                else:
+                    print("  Dataset is completely empty (lat/lon coords not available)")
+                continue
+            '''
             # Drop duplicate longitudes and sort
             ds = ds.sortby("longitude")
 
@@ -133,12 +154,14 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
             ds = drop_duplicate_coords(ds, "longitude")
             
             lat_datasets.append(ds)
-        print(f"loaded both datasets, merging {lat}")
-        # Merge regions in the same lon row along latitude
-        merged_row = xr.concat(lat_datasets, dim="latitude")
-        merged_row = merged_row.sortby("latitude").drop_duplicates(dim="latitude")
-        merged_row = merged_row.sortby("longitude").drop_duplicates(dim="longitude")
-        lat_arrays.append(merged_row)
+        print(f"loaded both datasets, merging column: {column}")
+        # Merge regions in the same lon column along latitude
+        merged_col = xr.concat(lat_datasets, dim="latitude")
+        merged_col = merged_col.sortby("latitude").drop_duplicates(dim="latitude")
+        #merged_col = merged_col.sortby("longitude").drop_duplicates(dim="longitude")
+        merged_col = merged_col.sortby(["latitude", "longitude"]) #####
+
+        lat_arrays.append(merged_col)
 
     print("fixing attrs")
     met = xr.concat(lat_arrays, dim="longitude")   
@@ -146,7 +169,7 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     met = met.drop_duplicates(dim="longitude")
     met = met.sortby(["latitude", "longitude", "time"])
     met = met.transpose("model_level_number", "latitude", "longitude", "time")
-    print(np.sum(np.isnan(met.x_wind[0,:,:,0].values)))
+    print("Total X_wind Nans", np.sum(np.isnan(met.x_wind[0,:,:,0].values)))
     for attr in ["units", "standard_name", "STASH"]:
       try:
         met.attrs.pop(attr)
@@ -157,8 +180,8 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     met.attrs["created"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     met.attrs["transformations"] = "interpolated linearly in space to NAME resolution"#, interpolated linearly in time from 3-hourly to hourly"
     print("at the end", met)
-    
-    filename = config.get("met_save_directory", "")+domain+"_Met_"+str(year)+month+"agnostic.nc"
+
+    filename = config.get("met_save_directory", "")+domain+"_Met_"+str(year)+month+".nc"
     print("saving", filename)
 
     met.load().to_netcdf(filename) 

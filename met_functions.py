@@ -209,6 +209,18 @@ def build_domain_grid(global_grid, regions_to_include):
     """
     Given the global region grid and a list of regions to include for a given domain, return a trimmed grid
     that only contains the specified regions.
+
+    Args:
+        global_grid (list of lists): 2D grid of region IDs.
+        regions_to_include (list of ints): Region IDs to include in output, comes from config.yaml.
+
+    Returns:
+        list of lists: Trimmed 2D grid containing only specified regions.
+
+    Example:
+        global_grid = [[2, 3], [6, 7]]
+        regions_to_include = [3, 7]
+        → [[None, 3], [None, 7]]
     """
     # Create a mask for the regions to include
     trimmed_grid = []
