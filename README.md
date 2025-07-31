@@ -1,5 +1,5 @@
 # extract_iris_met
-This repo has functions to extract meteorological datasets from the UM model hosted on jasmin (iris .pp files)
+This repo has functions to extract meteorological datasets from the UM model hosted on jasmin (iris .pp files), and now also in the [CEDA archive](https://data.ceda.ac.uk/badc/name_nwp/data/global)
 
 ## File Structure
 The UM model is hosted on JASMIN at `/gws/nopw/j04/name/met_archive/Global/`. From 2011, it gets released in "Mk" blocks, under folders labelled `UMG_Mk{Mk_number}PT`. The following Mk numbers correspond to the following timeperiods: 
