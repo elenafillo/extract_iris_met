@@ -204,3 +204,46 @@ def get_edge_size(domain, size_type):
         return config['domains'][domain].get(size_type, default_edge_size)
     except KeyError:
         return default_edge_size
+
+def build_domain_grid(global_grid, regions_to_include):
+    """
+    Given the global region grid and a list of regions to include for a given domain, return a trimmed grid
+    that only contains the specified regions.
+
+    Args:
+        global_grid (list of lists): 2D grid of region IDs.
+        regions_to_include (list of ints): Region IDs to include in output, comes from config.yaml.
+
+    Returns:
+        list of lists: Trimmed 2D grid containing only specified regions.
+
+    Example:
+        global_grid = [[2, 3], [6, 7]]
+        regions_to_include = [3, 7]
+        → [[None, 3], [None, 7]]
+    """
+    # Create a mask for the regions to include
+    trimmed_grid = []
+    for row in global_grid:
+        new_row = [cell if cell in regions_to_include else None for cell in row]
+        if any(cell is not None for cell in new_row):  # Keep rows with at least one valid region
+            trimmed_grid.append(new_row)
+
+    # Now trim columns (transpose → filter → transpose back)
+    transposed = list(map(list, zip(*trimmed_grid)))
+    trimmed_transposed = [
+        col for col in transposed if any(cell is not None for cell in col)
+    ]
+    final_grid = list(map(list, zip(*trimmed_transposed)))  # Back to row-major
+
+    return final_grid
+
+def drop_duplicate_coords(ds, dim):
+    """
+    Drop duplicate coordinate values along a given dimension
+    """
+    coord_vals = ds[dim].values
+    _, unique_idx = np.unique(coord_vals, return_index=True)
+    if len(unique_idx) < len(coord_vals):
+        print(f"Dropping {len(coord_vals) - len(unique_idx)} duplicate values in '{dim}'")
+    return ds.isel({dim: sorted(unique_idx)})
