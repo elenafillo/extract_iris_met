@@ -2,7 +2,7 @@
 This repo has functions to extract meteorological datasets from the UM model hosted on jasmin (iris .pp files)
 
 ## File Structure
-The UM model is hosted on JASMIN at `/gws/nopw/j04/name/met_archive/Global/`. From 2011, it gets released in "Mk" blocks, under folders labelled `UMG_Mk{Mk_number}PT`. The following Mk numbers correspond to the following timeperiods: 
+The UM model is hosted on JASMIN at `/gws/ssde/j25a/name/met_archive/Global/`. From 2011, it gets released in "Mk" blocks, under folders labelled `UMG_Mk{Mk_number}PT`. The following Mk numbers correspond to the following timeperiods: 
 | Mk Number    | Dates contained |
 | -------- | ------- |
 | Mk6  | Jan 2011 - March 2013    |
@@ -20,7 +20,6 @@ In each folder, the 3-hourly files have format `MO{year}{month}{day}{day_period}
 - The files for Mk6-Mk9 are zipped (format .pp.gz) and need to be unzipped before being read. Mk10 onwards can be read directly.
 
 ![image](https://github.com/user-attachments/assets/f6dc8296-f87f-4d82-bcf5-533147d8e9a3)
-
 
 
 ## Step-by-step of extracting met

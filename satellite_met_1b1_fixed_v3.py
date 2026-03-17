@@ -16,9 +16,6 @@ from met_functions import *
 import yaml
 import traceback
 
-
-
-
 print("getting some levels of met")
 
 """
@@ -41,6 +38,7 @@ with open("config.yaml", "r") as f:
 
 
 homefolder = config.get("scratch_path", "")
+met_archive_directory = config.get("met_archive_directory", "")
 
 files_dir = os.path.join(homefolder, "files")
 # Create the 'files' directory if it doesn't exist
@@ -145,11 +143,11 @@ fp.close()
 Mk = get_Mk(year, month)
     
 if Mk == 6:
-    filepath =  ["/gws/nopw/j04/name/met_archive/Global/UMG_Mk"+str(Mk)+"PT/MO", "*.UMG_Mk"+str(Mk)+"_L59PT"]
+    filepath =  [met_archive_directory+"UMG_Mk"+str(Mk)+"PT/MO", "*.UMG_Mk"+str(Mk)+"_L59PT"]
 elif Mk != 10:
-    filepath =  ["/gws/nopw/j04/name/met_archive/Global/UMG_Mk"+str(Mk)+"PT/MO", "*.UMG_Mk"+str(Mk)+"_I_L59PT"]
+    filepath =  [met_archive_directory+"UMG_Mk"+str(Mk)+"PT/MO", "*.UMG_Mk"+str(Mk)+"_I_L59PT"]
 if Mk == 10:
-    filepath =  ["/gws/nopw/j04/name/met_archive/Global/UMG_Mk"+str(Mk)+"PT/MO","*.UMG_Mk"+str(Mk)+"_I_L59PT"]
+    filepath =  [met_archive_directory+"UMG_Mk"+str(Mk)+"PT/MO","*.UMG_Mk"+str(Mk)+"_I_L59PT"]
 
 
 # get region files and how they are connected from notebook
@@ -273,9 +271,3 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
 
     print("---- All processing complete ---")
 print("----- Script finished successfully -----")
-
-
-
-
-
-
