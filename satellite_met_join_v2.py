@@ -21,7 +21,12 @@ from met_functions import *
 DEBUG_DUPLICATES = False
 
 
-print("starting joining script") 
+def log(msg):
+    """Print message with timestamp."""
+    print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
+
+
+log("starting joining script")
 parser = argparse.ArgumentParser(description='get big met')
 parser.add_argument('year', metavar='y', type=int, nargs='+',
                     help='year to process')
@@ -50,7 +55,7 @@ regions = domain_info["world_regions_codes"]
 #fp = xr.open_dataset(fp)
 region_key = args.regions
 domain = config["domains"].get(region_key)["domain_name"]
-print("getting args and setting up")
+log("getting args and setting up")
 # define start and end date (month by month)
 all_months = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
 month = all_months[args.month]
@@ -61,7 +66,7 @@ start_date = np.datetime64(str(year) + "-" + month + "-01")
 end_date = start_date  + np.timedelta64(days_in_month[args.month], 'D')
 #end_date = start_date  #use this when debugging only with one day
 #fp = fp.sel(time=slice(start_date, end_date))
-print("merging regional data for the period "+str(start_date) + " - " + str(end_date))
+log("merging regional data for the period "+str(start_date) + " - " + str(end_date))
 
 
 # get region files and how they are connected from notebook
@@ -79,7 +84,7 @@ global_region_grid = [
 # Now make it domain-specifc
 region_grid = build_domain_grid(global_region_grid, regions)
 
-print("region grid", region_grid)
+log(f"region grid: {region_grid}")
 
 
 homefolder = config.get("scratch_path", "")
@@ -91,26 +96,29 @@ for reg in regions:
         print("not all necessary files exist at homefolder ", homefolder)
         print("missing file for region ", str(reg))
         sys.exit()
-print("all necessary region files exist")
+log("all necessary region files exist")
 
 region_bounds = get_saved_region_bounds()
  
 
  
 with dask.config.set(**{'array.slicing.split_large_chunks': True}):
-    print("Trying agnostic met joining")
+    log("Trying agnostic met joining")
     lat_arrays = []
     for column in zip(*region_grid):
         lat_datasets = []
         for region in column:
             file_path = f"{homefolder}{domain}_Met_{year}{month}_{region}.nc"
 
-            ds = xr.open_dataset(file_path)
-            print("Min lon, max lon:", ds.longitude.min().values, ds.longitude.max().values)
+            log(f"Opening region {region}: {file_path}")
+            ds = xr.open_dataset(file_path).astype("float32")
+            region_size_mb = ds.nbytes / (1024 * 1024)
+            log(f"Region {region} opened — lon range: {ds.longitude.min().values:.2f} to {ds.longitude.max().values:.2f}, lat range: {ds.latitude.min().values:.2f} to {ds.latitude.max().values:.2f}")
+            log(f"Region {region} size after float32 cast: {region_size_mb:.1f} MB")
             '''
             # If near 180 degrees, adjust the longitude values
             if ds.longitude.min() < 0:
-                print("⏩ Converting longitudes from [-180, 180] to [0, 360]")
+                print("Converting longitudes from [-180, 180] to [0, 360]")
                 ds = ds.assign_coords(longitude=(ds.longitude % 360))
                 ds = ds.sortby("longitude")
             print("Augmented coords: Min lon, max lon:", ds.longitude.min().values, ds.longitude.max().values)
@@ -143,50 +151,55 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
             duplicates = unique[counts > 1]
             
             if duplicates.size > 0:
-                print(f"Duplicate longitude values found in region {region}: {duplicates}")
+                log(f"Duplicate longitude values found in region {region}: {duplicates}")
                 if DEBUG_DUPLICATES:
                     for dup in duplicates:
                         idxs = np.where(longitudes == dup)[0]
-                        print(f"  Value {dup} appears at indices {idxs}")
+                        log(f"  Value {dup} appears at indices {idxs}")
             else:
-                print(f"No duplicate longitudes in region {region}")
+                log(f"No duplicate longitudes in region {region}")
 
             ds = drop_duplicate_coords(ds, "longitude")
             
             lat_datasets.append(ds)
-        print(f"loaded both datasets, merging column: {column}")
+        log(f"Merging column {column} along latitude")
         # Merge regions in the same lon column along latitude
         merged_col = xr.concat(lat_datasets, dim="latitude")
         merged_col = merged_col.sortby("latitude").drop_duplicates(dim="latitude")
         #merged_col = merged_col.sortby("longitude").drop_duplicates(dim="longitude")
         merged_col = merged_col.sortby(["latitude", "longitude"]) #####
+        log(f"Column {column} merged")
 
         lat_arrays.append(merged_col)
 
-    print("fixing attrs")
+    log("Concatenating all columns along longitude")
     met = xr.concat(lat_arrays, dim="longitude")   
+    log(f"Full domain assembled — shape: {dict(met.dims)}")
 
     met = met.drop_duplicates(dim="longitude")
     met = met.sortby(["latitude", "longitude", "time"])
     met = met.transpose("model_level_number", "latitude", "longitude", "time")
-    print("Total X_wind Nans", np.sum(np.isnan(met.x_wind[0,:,:,0].values)))
+    log("fixing attrs")
+    print("Total X_wind Nans", int(met.x_wind[0,:,:,0].isnull().sum().values))
     for attr in ["units", "standard_name", "STASH"]:
       try:
         met.attrs.pop(attr)
       except:
-        print(f"no attr {attr}")
+        log(f"no attr {attr}")
         continue
     met.attrs["author"] = config.get("met_extract_author", "")
     met.attrs["created"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     met.attrs["transformations"] = "interpolated linearly in space to NAME resolution"#, interpolated linearly in time from 3-hourly to hourly"
-    print("at the end", met)
+    log(f"Final dataset: {met}")
 
     filename = config.get("met_save_directory", "")+domain+"_Met_"+str(year)+month+".nc"
-    print("saving", filename)
+    log(f"Writing to {filename}")
 
-    met.load().to_netcdf(filename) 
+    t0 = datetime.datetime.now()
+    met.to_netcdf(filename)
+    elapsed = (datetime.datetime.now() - t0).total_seconds()
     file_stats = os.stat(filename)
-    print(f'Saved! File Size in MegaBytes is {file_stats.st_size / (1024 * 1024)}')
+    log(f"Saved in {elapsed:.1f}s — File size: {file_stats.st_size / (1024 * 1024):.1f} MB")
 
 if args.delete_files:
     os.system("rm -r " + homefolder+domain+"_Met_"+str(year)+month+"_*")

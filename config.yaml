@@ -39,5 +39,4 @@ domains:
   INDIA:
     domain_name: "INDIA"
     footprint: "GOSAT-INDIA-SAM-column_SOUTHASIA_201503.nc"
-    # Non square, will require potential adaptation of _join_v2.py script:
     world_regions_codes: [3, 7]
