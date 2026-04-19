@@ -19,11 +19,29 @@ from met_functions import *
 ## 1. Parse arguments and set up
 """
 DEBUG_DUPLICATES = False
+COORD_DECIMALS = 6
 
 
 def log(msg):
     """Print message with timestamp."""
     print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
+
+
+def normalize_coords(ds, decimals=COORD_DECIMALS):
+    """Round lat/lon coordinates to avoid tiny cross-region precision mismatches."""
+    return ds.assign_coords(
+        latitude=np.round(ds.latitude.values.astype(np.float64), decimals).astype(np.float32),
+        longitude=np.round(ds.longitude.values.astype(np.float64), decimals).astype(np.float32),
+    )
+
+
+def fill_join_seams(ds):
+    """Fill 1-cell NaN seams introduced at region boundaries during stitching."""
+    ds = ds.interpolate_na(dim="latitude", method="linear", limit=1)
+    ds = ds.interpolate_na(dim="longitude", method="linear", limit=1)
+    ds = ds.interpolate_na(dim="latitude", method="nearest", limit=1)
+    ds = ds.interpolate_na(dim="longitude", method="nearest", limit=1)
+    return ds
 
 
 log("starting joining script")
@@ -125,8 +143,11 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
             '''
 
             bounds = region_bounds[region]
-            ds = ds.sel(latitude=slice(bounds[0], bounds[1]),
-                        longitude=slice(bounds[2], bounds[3]))
+            log(
+                f"Region {region} nominal bounds: "
+                f"lat [{bounds[0]}, {bounds[1]}], lon [{bounds[2]}, {bounds[3]}]"
+            )
+            ds = normalize_coords(ds)
             '''
             if ds.sizes["latitude"] == 0 or ds.sizes["longitude"] == 0:
                 print(f" Skipping region {region}: slicing returned empty dataset")
@@ -160,11 +181,18 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
                 log(f"No duplicate longitudes in region {region}")
 
             ds = drop_duplicate_coords(ds, "longitude")
+            ds = drop_duplicate_coords(ds, "latitude")
             
             lat_datasets.append(ds)
         log(f"Merging column {column} along latitude")
         # Merge regions in the same lon column along latitude
-        merged_col = xr.concat(lat_datasets, dim="latitude")
+        merged_col = xr.concat(
+            lat_datasets,
+            dim="latitude",
+            join="inner",
+            coords="minimal",
+            compat="override",
+        )
         merged_col = merged_col.sortby("latitude").drop_duplicates(dim="latitude")
         #merged_col = merged_col.sortby("longitude").drop_duplicates(dim="longitude")
         merged_col = merged_col.sortby(["latitude", "longitude"]) #####
@@ -173,12 +201,30 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
         lat_arrays.append(merged_col)
 
     log("Concatenating all columns along longitude")
-    met = xr.concat(lat_arrays, dim="longitude")   
-    log(f"Full domain assembled — shape: {dict(met.dims)}")
+    met = xr.concat(
+        lat_arrays,
+        dim="longitude",
+        join="inner",
+        coords="minimal",
+        compat="override",
+    )
+    log(f"Full domain assembled — shape: {dict(met.sizes)}")
 
     met = met.drop_duplicates(dim="longitude")
     met = met.sortby(["latitude", "longitude", "time"])
-    met = met.transpose("model_level_number", "latitude", "longitude", "time")
+    log("Filling potential 1-cell seams across region joins")
+    met = fill_join_seams(met)
+    met = met.assign_coords(
+        latitude=met.latitude.astype(np.float32),
+        longitude=met.longitude.astype(np.float32),
+    )
+    met = met.transpose(
+        "model_level_number",
+        "latitude",
+        "longitude",
+        "time",
+        ...,
+    )
     log("fixing attrs")
     print("Total X_wind Nans", int(met.x_wind[0,:,:,0].isnull().sum().values))
     for attr in ["units", "standard_name", "STASH"]:
