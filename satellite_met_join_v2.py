@@ -128,7 +128,9 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
             file_path = f"{homefolder}{domain}_Met_{year}{month}_{region}.nc"
 
             log(f"Opening region {region}: {file_path}")
-            ds = xr.open_dataset(file_path).astype("float32")
+            ds = xr.open_dataset(file_path)
+            for v in ds.data_vars:
+                ds[v] = ds[v].astype("float32")
             region_size_mb = ds.nbytes / (1024 * 1024)
             log(f"Region {region} opened — lon range: {ds.longitude.min().values:.2f} to {ds.longitude.max().values:.2f}, lat range: {ds.latitude.min().values:.2f} to {ds.latitude.max().values:.2f}")
             log(f"Region {region} size after float32 cast: {region_size_mb:.1f} MB")
