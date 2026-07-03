@@ -4,6 +4,15 @@ import yaml
 from collections import defaultdict, Counter
 from datetime import datetime
 
+
+def resolve_config_value(value, config):
+    if not isinstance(value, str):
+        return value
+    try:
+        return value.format(**config)
+    except KeyError:
+        return value
+
 # Load domain configuration from yaml file
 def load_domains_config(yaml_path):
     """
@@ -245,13 +254,16 @@ def summarise_complete_years(complete):
 
 
 
-yaml_path = "config.yaml"
+yaml_path = "config.yaml" if os.path.exists("config.yaml") else "config.yml"
 # Open config file
 with open(yaml_path, "r") as f:
     config = yaml.safe_load(f)
 
-scratch_dir = os.path.join(config["scratch_path"], "files")
-final_dir = config["met_save_directory"]
+if not config.get("user"):
+    config["user"] = os.environ.get("USER", "")
+
+scratch_dir = os.path.join(resolve_config_value(config["scratch_path"], config), "files")
+final_dir = resolve_config_value(config["met_save_directory"], config)
 
 print("\n=== DIRECTORIES BEING SCANNED ===")
 print(f"Scratch (intermediate chunks): {scratch_dir}")

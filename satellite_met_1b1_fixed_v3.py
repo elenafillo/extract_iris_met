@@ -14,7 +14,6 @@ import argparse
 import warnings
 
 from met_functions import *
-import yaml
 import traceback
 
 
@@ -50,13 +49,12 @@ args = parser.parse_args()
 # a_day_only runs a debugging single day just to check it all works, but can probs be removed
 a_day_only = False
 
-# Load yaml and extract relevant details for the domain of interest
-with open("config.yaml", "r") as f:
-    config = yaml.safe_load(f)
+# Load yaml and extract relevant details for the domain of interest
+config = load_config()
 
 
-homefolder = config.get("scratch_path", "")
-met_archive_directory = config.get("met_archive_directory", "")
+homefolder = resolve_config_value(config.get("scratch_path", ""), config)
+met_archive_directory = resolve_config_value(config.get("met_archive_directory", ""), config)
 
 files_dir = os.path.join(homefolder, "files")
 # Create the 'files' directory if it doesn't exist
@@ -66,6 +64,7 @@ if not os.path.exists(files_dir):
 region_key = args.regions
 domain_info = config["domains"].get(region_key)
 footprint_base = config.get("reference_footprints_directory", "")
+footprint_base = resolve_config_value(footprint_base, config)
 
 if domain_info is None:
     raise ValueError(f"Unknown region key: {region_key}")
@@ -81,6 +80,7 @@ domain_name = domain_info["domain_name"]
 
 # Define where to save 
 scripts_text = config.get("scripts_text_save_location", "")
+scripts_text = resolve_config_value(scripts_text, config)
 # Create the folder if it doesn't exist
 folder = os.path.dirname(scripts_text)
 if folder:  # only try to make directory if folder part is not empty

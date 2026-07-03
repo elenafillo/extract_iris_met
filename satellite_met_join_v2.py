@@ -11,7 +11,6 @@ import gzip
 import dask
 import shutil
 import argparse
-import yaml
 
 from met_functions import *
 
@@ -56,14 +55,14 @@ args = parser.parse_args()
 # reference footprint
 #fp = "/home/users/elenafi/satellite_met_scripts/GOSAT-BRAZIL-column_SOUTHAMERICA_201801.nc"
 
-# Load yaml and extract relevant details for the domain of interest
-with open("config.yaml", "r") as f:
-    config = yaml.safe_load(f)
+# Load yaml and extract relevant details for the domain of interest
+config = load_config()
 
     
 region_key = args.regions
 domain_info = config["domains"].get(region_key)
 footprint_base = config.get("reference_footprints_directory", "")
+footprint_base = resolve_config_value(footprint_base, config)
 
 if domain_info is None:
     raise ValueError(f"Unknown region key: {region_key}")
@@ -105,7 +104,7 @@ region_grid = build_domain_grid(global_region_grid, regions)
 log(f"region grid: {region_grid}")
 
 
-homefolder = config.get("scratch_path", "")
+homefolder = resolve_config_value(config.get("scratch_path", ""), config)
 homefolder = os.path.join(homefolder, "files/")
 # check that all files to join have been created
 files = glob.glob(homefolder+domain+"_Met_"+str(year)+month+"_*")
@@ -238,7 +237,8 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     met.attrs["transformations"] = "interpolated linearly in space to NAME resolution"#, interpolated linearly in time from 3-hourly to hourly"
     log(f"Final dataset: {met}")
 
-    filename = config.get("met_save_directory", "")+domain+"_Met_"+str(year)+month+".nc"
+    met_save_directory = resolve_config_value(config.get("met_save_directory", ""), config)
+    filename = met_save_directory+domain+"_Met_"+str(year)+month+".nc"
     log(f"Writing to {filename}")
 
     t0 = datetime.datetime.now()

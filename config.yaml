@@ -1,19 +1,22 @@
+# Set personal details
+user: "jeff"
+met_extract_author: "Jeff Clark (kr21883)"
+
 # Where to save the txt file summarising progress running the satellite_met_1b1_fixed_v3 script
-scripts_text_save_location: "/home/users/jeff/satellite_met_scripts/updates.txt"
+scripts_text_save_location: "/home/users/{user}/satellite_met_scripts/updates.txt"
 
 # Directory where to process and save world regions
-scratch_path: "/work/scratch-pw4/jeff/"
+scratch_path: "/work/scratch-pw5/{user}/"
 
 # NAME directory storing the met archive files
 met_archive_directory: "/gws/ssde/j25a/name/met_archive/Global/"
 
 # Directory where to save the final joined met file
-met_save_directory: "/gws/ssde/j25b/acrg/jeff/satellite_met/"
+met_save_directory: "/gws/ssde/j25b/acrg/{user}/satellite_met/"
 
 # Directory where the reference footprint for each domain is stored
 reference_footprints_directory: "/gws/ssde/j25b/acrg/elenafi/example_footprints"
 
-met_extract_author: "Jeff Clark (kr21883)"
 
 # Default edge size for latitude and longitude if not specified per domain
 default_edge_size: [100, 100]
