@@ -69,6 +69,10 @@ def extract_present_files_from_scratch(scratch_dir):
     found = defaultdict(lambda: defaultdict(set))
     pattern = re.compile(r"(\w+)_Met_(\d{6})_(\d+)\.nc")
 
+    if not os.path.isdir(scratch_dir):
+        print(f"  WARNING: {scratch_dir} directory not found; treating as no intermediate files present.")
+        return found
+
     for filename in os.listdir(scratch_dir):
         match = pattern.match(filename)
         if match:
