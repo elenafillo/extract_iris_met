@@ -184,7 +184,7 @@ def load_iris(filepath, Mk, date, vars, num, homefolder):
         homefiles = glob.glob(homefolder+"*"+date+filepath[1]+ str(num) + ".pp")
         nhomefiles = len(homefiles)
         #print(list(set([os.path.basename(f).replace(".gz", "") for f in files]) - set([os.path.basename(f) for f in homefiles])))
-        print(len(homefiles), len(files))
+        print(f"Number of files in homefolder: {nhomefiles}, Number of files to load: {len(files)}")
 
         # Load config.yaml to save to updates.txt
         config = load_config()

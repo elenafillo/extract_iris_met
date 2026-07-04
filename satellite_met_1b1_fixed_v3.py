@@ -254,7 +254,7 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
                 # Dateline-crossing region: select east and west halves separately
                 east = all_variables.sel(longitude=slice(lon_min, 180.0))
                 west = all_variables.sel(longitude=slice(-180.0, lon_max))
-                all_variables = xr.concat([east, west], dim="longitude")
+                all_variables = xr.concat([east, west], dim="longitude").sortby("longitude")
                 log(f"region {reg} crosses dateline; concatenated east/west longitude slices")
             
             
