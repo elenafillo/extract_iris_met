@@ -11,12 +11,26 @@ import gzip
 import dask
 import shutil
 import argparse
+import warnings
 
 from met_functions import *
-import yaml
 import traceback
 
 
+def log(msg):
+    """Print message with timestamp."""
+    print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
+
+
+def dataarray_from_iris_safely(cube):
+    """Convert iris cube to xarray while suppressing known xarray timedelta deprecation noise."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="In a future version, xarray will not decode timedelta values.*",
+            category=FutureWarning,
+        )
+        return xr.DataArray.from_iris(cube)
 
 
 print("getting some levels of met")
@@ -35,12 +49,12 @@ args = parser.parse_args()
 # a_day_only runs a debugging single day just to check it all works, but can probs be removed
 a_day_only = False
 
-# Load yaml and extract relevant details for the domain of interest
-with open("config.yaml", "r") as f:
-    config = yaml.safe_load(f)
+# Load yaml and extract relevant details for the domain of interest
+config = load_config()
 
 
-homefolder = config.get("scratch_path", "")
+homefolder = resolve_config_value(config.get("scratch_path", ""), config)
+met_archive_directory = resolve_config_value(config.get("met_archive_directory", ""), config)
 
 files_dir = os.path.join(homefolder, "files")
 # Create the 'files' directory if it doesn't exist
@@ -50,6 +64,7 @@ if not os.path.exists(files_dir):
 region_key = args.regions
 domain_info = config["domains"].get(region_key)
 footprint_base = config.get("reference_footprints_directory", "")
+footprint_base = resolve_config_value(footprint_base, config)
 
 if domain_info is None:
     raise ValueError(f"Unknown region key: {region_key}")
@@ -65,14 +80,15 @@ domain_name = domain_info["domain_name"]
 
 # Define where to save 
 scripts_text = config.get("scripts_text_save_location", "")
+scripts_text = resolve_config_value(scripts_text, config)
 # Create the folder if it doesn't exist
 folder = os.path.dirname(scripts_text)
 if folder:  # only try to make directory if folder part is not empty
     os.makedirs(folder, exist_ok=True)
 
-print(f"--- running for {domain_name}, {args.year[0]} {args.month}, a_day_only {a_day_only} ---")
+log(f"--- running for {domain_name}, {args.year[0]} {args.month}, a_day_only {a_day_only} ---")
 
-print("getting args and setting up")
+log("getting args and setting up")
 # define start and end date (month by month)
 all_months = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
 month = all_months[args.month]
@@ -86,7 +102,7 @@ if a_day_only:
     #end_date = start_date  #use this when debugging only with one day
     end_date = start_date  + np.timedelta64(24, 'h')
 
-print("getting met for the period "+str(start_date) + " - " + str(end_date))
+log("getting met for the period "+str(start_date) + " - " + str(end_date))
 
 """
 ## 2. Select the latitudes and longitudes to be extracted
@@ -105,7 +121,7 @@ fp = xr.load_dataset(fp)
 latitudes = list(fp.lat.values)
 longitudes = list(fp.lon.values)
 
-print("adding extra longitudes to reference grid")
+log("adding extra longitudes to reference grid")
 
 
 
@@ -127,7 +143,7 @@ fp = fp.sel(lon=slice(np.min(fp.release_lon), np.max(fp.release_lon)), lat=slice
 edge_size_lat = get_edge_size(region_key, 'edge_size_lat')
 edge_size_lon = get_edge_size(region_key, 'edge_size_lon')
 
-print(f"Edge size for {region_key} - Latitude: {edge_size_lat}, Longitude: {edge_size_lon}")
+log(f"Edge size for {region_key} - Latitude: {edge_size_lat}, Longitude: {edge_size_lon}")
 
 latitudes = list(fp.lat.values)
 longitudes = list(fp.lon.values)
@@ -145,11 +161,11 @@ fp.close()
 Mk = get_Mk(year, month)
     
 if Mk == 6:
-    filepath =  ["/gws/nopw/j04/name/met_archive/Global/UMG_Mk"+str(Mk)+"PT/MO", "*.UMG_Mk"+str(Mk)+"_L59PT"]
+    filepath =  [met_archive_directory+"UMG_Mk"+str(Mk)+"PT/MO", "*.UMG_Mk"+str(Mk)+"_L59PT"]
 elif Mk != 10:
-    filepath =  ["/gws/nopw/j04/name/met_archive/Global/UMG_Mk"+str(Mk)+"PT/MO", "*.UMG_Mk"+str(Mk)+"_I_L59PT"]
+    filepath =  [met_archive_directory+"UMG_Mk"+str(Mk)+"PT/MO", "*.UMG_Mk"+str(Mk)+"_I_L59PT"]
 if Mk == 10:
-    filepath =  ["/gws/nopw/j04/name/met_archive/Global/UMG_Mk"+str(Mk)+"PT/MO","*.UMG_Mk"+str(Mk)+"_I_L59PT"]
+    filepath =  [met_archive_directory+"UMG_Mk"+str(Mk)+"PT/MO","*.UMG_Mk"+str(Mk)+"_I_L59PT"]
 
 
 # get region files and how they are connected from notebook
@@ -175,19 +191,22 @@ the load_iris opens the .pp files, copying them to scratch and unzipping them if
 """
 with dask.config.set(**{'array.slicing.split_large_chunks': True}):
     for reg in regions:
-        print(f"************************\n Processing Region {reg} \n************************")
+        region_start = datetime.datetime.now()
+        log(f"************************ Processing Region {reg} ************************")
         try:
+            t0 = datetime.datetime.now()
             cube = load_iris(filepath, Mk, date, vars, reg, homefolder)
-            print(f"region {reg} loaded")
+            log(f"region {reg} loaded in {(datetime.datetime.now() - t0).total_seconds():.1f}s")
 
             txtfile = open(scripts_text, "a")
             txtfile.write(date + str(reg) + "  " +str(datetime.datetime.now()) + f"starting for {domain_name}, {args.year[0]} {args.month}, a_day_only {a_day_only}, region {reg}\n")
             txtfile.close()  
         
             # some variables have slightly different coord systems for some reason?
-            most_variables = xr.combine_by_coords([xr.DataArray.from_iris(cube[i]) for i in [0,1,3,4,5,7]]).sel(model_level_number=levels)
-            x_wind = xr.combine_by_coords([xr.DataArray.from_iris(cube[8])], compat="override").sel(model_level_number=levels)
-            y_wind = xr.combine_by_coords([xr.DataArray.from_iris(cube[9])], compat="override").sel(model_level_number=levels)
+            t0 = datetime.datetime.now()
+            most_variables = xr.combine_by_coords([dataarray_from_iris_safely(cube[i]) for i in [0,1,3,4,5,7]]).sel(model_level_number=levels)
+            x_wind = xr.combine_by_coords([dataarray_from_iris_safely(cube[8])], compat="override").sel(model_level_number=levels)
+            y_wind = xr.combine_by_coords([dataarray_from_iris_safely(cube[9])], compat="override").sel(model_level_number=levels)
             del cube 
             
             all_variables = xr.combine_by_coords([
@@ -195,10 +214,13 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
                 x_wind.interp(latitude=most_variables.latitude.values, longitude=most_variables.longitude.values),
                 y_wind.interp(latitude=most_variables.latitude.values, longitude=most_variables.longitude.values)
             ], compat="override")
+            log(f"combined variables for region {reg} in {(datetime.datetime.now() - t0).total_seconds():.1f}s")
             
             del most_variables, x_wind, y_wind
             
+            t0 = datetime.datetime.now()
             all_variables.load()
+            log(f"loaded combined dataset into memory in {(datetime.datetime.now() - t0).total_seconds():.1f}s")
             
 
             txtfile = open(scripts_text, "a")
@@ -206,8 +228,8 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
             txtfile.close()  
             
             all_variables = all_variables.assign_coords(longitude=(((all_variables.longitude + 180) % 360) - 180))
-
             print(all_variables)
+            log(f"region {reg} raw dataset dims: {dict(all_variables.sizes)}")
 
             if "time" not in list(all_variables.sizes.keys()):
                 all_variables = all_variables.stack(newtime = ["forecast_period", "forecast_reference_time"])
@@ -215,29 +237,40 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
                 all_variables = all_variables.swap_dims({"newtime":"time"})
                 
                 all_variables = all_variables.drop_vars(['forecast_period', "forecast_reference_time", "newtime"])
+                log("time dimension constructed from forecast_period + forecast_reference_time")
             else:
                 all_variables = all_variables.transpose("model_level_number", "latitude", "longitude", "time", ...)
 
             # interpolating to correct resolution, then slicing back to region domain
             all_variables = all_variables.interp(latitude=latitudes,longitude=longitudes)
 
-            all_variables = all_variables.sel(latitude=slice(region_bounds[reg][0], region_bounds[reg][1]), longitude=slice(region_bounds[reg][2], region_bounds[reg][3]))
+            lat_min, lat_max = region_bounds[reg][0], region_bounds[reg][1]
+            lon_min, lon_max = region_bounds[reg][2], region_bounds[reg][3]
+            all_variables = all_variables.sel(latitude=slice(lat_min, lat_max))
+            if lon_min <= lon_max:
+                # Normal case: no dateline crossing
+                all_variables = all_variables.sel(longitude=slice(lon_min, lon_max))
+            else:
+                # Dateline-crossing region: select east and west halves separately
+                east = all_variables.sel(longitude=slice(lon_min, 180.0))
+                west = all_variables.sel(longitude=slice(-180.0, lon_max))
+                all_variables = xr.concat([east, west], dim="longitude").sortby("longitude")
+                log(f"region {reg} crosses dateline; concatenated east/west longitude slices")
             
             
             interpolated = all_variables.sortby("time")
             # NOT INTERPOLATING HOURLY???
             #interpolated = interpolated.resample(time="1h").interpolate("linear")
-            print("interpolation complete")
-            print(interpolated)
+            log(f"interpolation complete for region {reg}; dims now {dict(interpolated.sizes)}")
                 
             txtfile = open(scripts_text, "a")
             txtfile.write(date + str(reg) + "  " + str(datetime.datetime.now()) + "interpolated! chunking \n")
             txtfile.write(str(len(interpolated.longitude)) + "\n")
             txtfile.close()  
             
-            interpolated = interpolated.chunk("auto")
-            
-            print(interpolated)
+            t0 = datetime.datetime.now()
+            interpolated = interpolated.chunk({"model_level_number": -1, "time": 50, "latitude": 50, "longitude": 50})
+            log(f"chunking complete for region {reg} in {(datetime.datetime.now() - t0).total_seconds():.1f}s")
                 
             txtfile = open(scripts_text, "a")
             txtfile.write(date + str(reg) + "  " + str(datetime.datetime.now()) + "chunked! saving \n")
@@ -248,34 +281,32 @@ with dask.config.set(**{'array.slicing.split_large_chunks': True}):
 
             filename = homefolder+"files/"+domain_name+"_Met_"+str(year)+month+"_"+str(reg)+".nc"
             
-            print(interpolated.dims)
-            print(interpolated.coords)
-            print(interpolated.data_vars)
-
-            print("saving...")
+            log(f"saving region {reg} to {filename}")
+            t0 = datetime.datetime.now()
             interpolated.to_netcdf(filename)            
 
-            print(f"saved as {filename}", flush=True)
+            file_stats = os.stat(filename)
+            log(
+                f"saved region {reg} in {(datetime.datetime.now() - t0).total_seconds():.1f}s; "
+                f"file size {file_stats.st_size / (1024 * 1024):.1f} MB"
+            )
             txtfile = open(scripts_text, "a")
             txtfile.write(date + str(reg) + "  " + str(datetime.datetime.now()) + f"saved successfully at {filename} \n")
             txtfile.close()  
 
-            print(f"---- Finished region {reg} ----")
+            log(
+                f"---- Finished region {reg} in "
+                f"{(datetime.datetime.now() - region_start).total_seconds():.1f}s ----"
+            )
 
             del interpolated
             del all_variables
         except Exception as e:
-            print(f"Skipping region {reg} due to error: {e}", flush=True)
+            log(f"Skipping region {reg} due to error: {e}")
             traceback.print_exc()
             with open(scripts_text, "a") as txtfile:
                 txtfile.write(f"{date}{reg}  {datetime.datetime.now()} error: {e}\n")
             continue
 
-    print("---- All processing complete ---")
-print("----- Script finished successfully -----")
-
-
-
-
-
-
+    log("---- All processing complete ---")
+log("----- Script finished successfully -----")

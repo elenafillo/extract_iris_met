@@ -14,18 +14,82 @@ import argparse
 import yaml
 
 
-def get_default_paths():
-    # Moving all hard-coded locations to config.yaml.
-    # To remove this function as soon as I've finished with satellite_met_join_v2.py
-    stratch = "/work/scratch-nopw2/jeff/"
+def load_config():
+    """
+    Load the project configuration file and normalize required keys.
 
-    paths = {"stratch":stratch}
+    The function first looks for `config.yaml` in the current working directory,
+    and falls back to `config.yml` if needed. The parsed YAML must produce a
+    dictionary-like object; otherwise a ValueError is raised.
 
-    return paths
+    For portability across user accounts, this helper guarantees that a `user`
+    value exists in the returned config. If `user` is missing or empty in the
+    file, it is populated from the `USER` environment variable (or an empty
+    string if that variable is unavailable).
+
+    Returns
+    -------
+    dict
+        Parsed and normalized configuration mapping.
+    """
+    config_path = "config.yaml" if os.path.exists("config.yaml") else "config.yml"
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+
+    if not isinstance(config, dict):
+        raise ValueError("config.yaml did not parse to a dictionary")
+
+    if not config.get("user"):
+        config["user"] = os.environ.get("USER", "")
+
+    return config
+
+
+def resolve_config_value(value, config):
+    """
+    Resolve string templates in individual config values.
+
+    If `value` is a string, this function applies Python `str.format(**config)`
+    so placeholders such as `{user}` are expanded from keys in the config
+    mapping. Non-string values are returned unchanged.
+
+    Missing placeholders are handled safely: if a required key is not present,
+    the original string is returned without raising an exception. This lets the
+    caller decide whether unresolved placeholders are acceptable.
+
+    Parameters
+    ----------
+    value : Any
+        Raw config value to resolve.
+    config : dict
+        Configuration mapping used as format context.
+
+    Returns
+    -------
+    Any
+        Resolved value (for strings) or the original value (for non-strings or
+        unresolved templates).
+    """
+    if not isinstance(value, str):
+        return value
+    try:
+        return value.format(**config)
+    except KeyError:
+        return value
 
 def get_saved_region_bounds():
     """
-    Get the bounds of each world region
+    Return the saved latitude/longitude bounds for each world region.
+
+    The returned mapping is used by the extraction and join scripts to work
+    out which global region files overlap a given domain. The bounds reflect
+    the saved region layout used elsewhere in the repository, including the
+    dateline-crossing regions.
+
+    Returns
+    -------
+    dict
+        Mapping of region ID to [min_lat, max_lat, min_lon, max_lon].
     """
     """
     # these are actually incorrect but plot the correct lines - something to do with wrapping around the edges
@@ -65,11 +129,23 @@ def get_saved_region_bounds():
 
 def find_overlapping_regions(min_lat, max_lat, min_lon, max_lon):
     """
-    Given a bounding box (min/max latitude and longitude), return the region IDs that overlap.
+    Find the world-region IDs that overlap a latitude/longitude box.
 
+    This is a convenience wrapper around the saved region bounds. It checks
+    each world region and returns the IDs whose latitude and longitude ranges
+    intersect the supplied bounding box.
 
-    Returns:
-    list: Region IDs that overlap with the given domain
+    Parameters
+    ----------
+    min_lat, max_lat : float
+        Latitude limits of the box to test.
+    min_lon, max_lon : float
+        Longitude limits of the box to test.
+
+    Returns
+    -------
+    list of int
+        Region IDs that intersect the supplied bounding box.
     """
     region_bounds = get_saved_region_bounds()
     overlapping_regions = []
@@ -108,12 +184,11 @@ def load_iris(filepath, Mk, date, vars, num, homefolder):
         homefiles = glob.glob(homefolder+"*"+date+filepath[1]+ str(num) + ".pp")
         nhomefiles = len(homefiles)
         #print(list(set([os.path.basename(f).replace(".gz", "") for f in files]) - set([os.path.basename(f) for f in homefiles])))
-        print(len(homefiles), len(files))
+        print(f"Number of files in homefolder: {nhomefiles}, Number of files to load: {len(files)}")
 
         # Load config.yaml to save to updates.txt
-        with open("config.yaml", "r") as f:
-            config = yaml.safe_load(f)
-        scripts_text = config.get("scripts_text_save_location", "")
+        config = load_config()
+        scripts_text = resolve_config_value(config.get("scripts_text_save_location", ""), config)
         if len(homefiles)==len(files):
             txtfile = open(scripts_text, "a+")
             txtfile.write(date + str(num) + "  " + str(datetime.datetime.now()) + " --- loading data from scratch --- \n")
@@ -193,10 +268,29 @@ def get_Mk(year, month):
     return Mk
 
 def get_edge_size(domain, size_type):
+    """
+    Return the configured edge size for a domain, or the default fallback.
+
+    The config file can define per-domain values for `edge_size_lat` and
+    `edge_size_lon`. If a domain does not define the requested size type, the
+    global `default_edge_size` value is returned instead.
+
+    Parameters
+    ----------
+    domain : str
+        Domain key from config.yaml, for example ``SA`` or ``INDIA``.
+    size_type : str
+        Which size setting to fetch, typically ``edge_size_lat`` or
+        ``edge_size_lon``.
+
+    Returns
+    -------
+    list
+        Two-element list describing the requested edge size.
+    """
 
     # Retrieve the domain or global default edge size from the yaml configuration file
-    with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
+    config = load_config()
 
     default_edge_size = config.get('default_edge_size', [100, 100])
 
@@ -207,20 +301,29 @@ def get_edge_size(domain, size_type):
 
 def build_domain_grid(global_grid, regions_to_include):
     """
-    Given the global region grid and a list of regions to include for a given domain, return a trimmed grid
-    that only contains the specified regions.
+    Trim a global region grid down to just the regions needed for one domain.
 
-    Args:
-        global_grid (list of lists): 2D grid of region IDs.
-        regions_to_include (list of ints): Region IDs to include in output, comes from config.yaml.
+    Cells that are not part of the requested domain are replaced with None.
+    Entire rows and columns that become empty after filtering are removed so the
+    result is the smallest rectangular grid that still preserves the target
+    layout.
 
-    Returns:
-        list of lists: Trimmed 2D grid containing only specified regions.
+    Parameters
+    ----------
+    global_grid : list of list of int
+        Full region grid used by the domain-joining logic.
+    regions_to_include : list of int
+        Region IDs that should remain in the returned grid.
 
-    Example:
-        global_grid = [[2, 3], [6, 7]]
-        regions_to_include = [3, 7]
-        → [[None, 3], [None, 7]]
+    Returns
+    -------
+    list of list
+        Trimmed grid containing only the requested regions.
+
+    Examples
+    --------
+    >>> build_domain_grid([[2, 3], [6, 7]], [3, 7])
+    [[None, 3], [None, 7]]
     """
     # Create a mask for the regions to include
     trimmed_grid = []
@@ -240,7 +343,24 @@ def build_domain_grid(global_grid, regions_to_include):
 
 def drop_duplicate_coords(ds, dim):
     """
-    Drop duplicate coordinate values along a given dimension
+    Drop duplicate coordinate values along a given dimension.
+
+    This helper keeps the first occurrence of each coordinate value and drops
+    later duplicates. It is used to clean up stitched datasets where floating-
+    point precision or concatenation can create repeated latitude or longitude
+    coordinate entries.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Dataset to clean.
+    dim : str
+        Coordinate dimension to deduplicate.
+
+    Returns
+    -------
+    xarray.Dataset
+        Dataset with duplicate coordinate values removed along `dim`.
     """
     coord_vals = ds[dim].values
     _, unique_idx = np.unique(coord_vals, return_index=True)
