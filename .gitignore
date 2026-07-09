@@ -14,3 +14,11 @@ logs/
 # Keep the folder tracked (via .gitkeep) but not its contents.
 data/*
 !data/.gitkeep
+
+# Personal config — copy config.example.yaml to config.yaml and edit locally.
+config.yaml
+
+# Sample/raw .pp data (large; never commit)
+pp_data/
+*.pp
+*.pp.gz

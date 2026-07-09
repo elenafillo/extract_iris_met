@@ -1,6 +1,14 @@
 # extract_iris_met
 This repo has functions to extract meteorological datasets from the UM model hosted on jasmin (iris .pp files)
 
+## Setup
+The config is not committed (it holds per-user details). On first checkout, copy the template and edit your copy:
+```bash
+cp config.example.yaml config.yaml
+# then edit config.yaml — set met_extract_author, check the paths, add your domains
+```
+`config.yaml` is git-ignored; `config.example.yaml` holds the shared structure (domains, data-type archive paths, grid specs).
+
 ## File Structure
 The UM model is hosted on JASMIN at `/gws/ssde/j25a/name/met_archive/Global/`. From 2011, it gets released in "Mk" blocks, under folders labelled `UMG_Mk{Mk_number}PT`. The following Mk numbers correspond to the following timeperiods and native resolutions: 
 | Mk Number    | Dates contained | Native Resolution (Δlat, Δlon) | Grid Size |

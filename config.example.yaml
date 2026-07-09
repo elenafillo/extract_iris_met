@@ -1,0 +1,117 @@
+# met_extract configuration TEMPLATE.
+#
+#   cp config.example.yaml config.yaml
+#
+# then edit config.yaml (which is git-ignored) with your personal details. The
+# shared structure below — domains, data_types, grid specs — is the part worth
+# versioning; the only truly personal field is `met_extract_author`.
+
+# Set personal details
+user: ""                            # Leave blank; filled from the $USER environment variable
+met_extract_author: ""              # Your name / ID, recorded in output provenance
+
+# Directory where to process and save world regions (scratch)
+scratch_path: "/work/scratch-pw5/{user}/"
+
+# Directory where yearly zarr stores are saved
+zarr_save_directory: "/gws/ssde/j25b/acrg/{user}/satellite_met_zarr/"
+
+# Zarr format version (2 for backward compatibility with zarr 2.18.7, or 3 for newer zarr)
+zarr_format: 2
+
+# Shared directory holding the reference footprint for each domain
+reference_footprints_directory: "/gws/ssde/j25b/acrg/elenafi/example_footprints"
+
+# Directory where saved native UM grids are stored
+native_grid_directory: "data/"
+
+# CF-convention metadata written into the output zarr stores. Fill in what
+# applies to your group; leave any field as "" to omit it (empty fields are not
+# written as blank attributes).
+metadata:
+  conventions: "CF-1.10"     # CF conventions version claimed by the output
+  institution: "University of Bristol, Atmospheric Chemistry Research Group"
+  references: ""             # e.g. a DOI or URL documenting the dataset or method
+  title: ""                  # optional; auto-generated per domain/year if left empty
+  source: ""                 # optional; auto-generated from the UM Mk version if left empty
+  comment: ""                # optional; appended to the auto-generated processing comment
+
+# Per-data-type overrides (paths and tuning). The structural properties of each
+# data type — grid type, region scheme, tiled/not, level count, cadence — are
+# defined in met_extract/sources.py; here you only set environment-specific paths.
+data_types:
+  UM_Global:
+    # Global UM archive (Mk6–11).
+    archive_directory: "/gws/ssde/j25a/name/met_archive/Global/"
+  UM1p5km:
+    # 1.5 km UK LimitedArea archive (Mk2–4). Region tiles live under
+    # UM1p5km_Mk{mk}PT/PT{region}/ inside this directory.
+    archive_directory: "/gws/ssde/j25a/name/met_archive/LimitedArea/"
+  NZCSM:
+    # New Zealand convective-scale model archive (single file per timestep).
+    archive_directory: ""    # TODO: set once the NZCSM archive exists
+
+# Default edge size for latitude and longitude if not specified per domain
+default_edge_size: [100, 100]
+
+domains:
+  SA:
+    domain_name: "SOUTHAMERICA"
+    footprint: "GOSAT-BRAZIL-column_SOUTHAMERICA_201801.nc"
+    world_regions_codes: [6, 9, 10, 13]
+    # Grid specification (optional; if absent, falls back to footprint mode with default edge sizes)
+    grid:
+      mode: footprint              # footprint (default) | regular | native
+      edge_size_lat: [100, 100]
+      edge_size_lon: [85, 100]
+    # Example grid specifications for other modes:
+    # For regular mode:
+    #   mode: regular
+    #   lat_bounds: [-25, 15]
+    #   lon_bounds: [-75, -30]
+    #   dlat: 0.234
+    #   dlon: 0.352
+    # For native mode:
+    #   mode: native
+    #   lat_bounds: [-25, 15]
+    #   lon_bounds: [-75, -30]
+    #   native_grid: majority  # or "latest", "Mk10", etc.
+
+  NA:
+    domain_name: "NORTHAFRICA"
+    footprint: "GOSAT-SAHARA-column_NORTHAFRICA_201611.nc"
+    world_regions_codes: [2, 3, 6, 7]
+    edge_size_lat: [100, 100]
+    edge_size_lon: [85, 100]
+
+  CHINA:
+    domain_name: "CHINA"
+    footprint: "GOSAT-CHINA-column_EASTASIA_201605.nc"
+    world_regions_codes: [3, 4, 7, 8]
+
+  INDIA:
+    domain_name: "INDIA"
+    footprint: "GOSAT-INDIA-SAM-column_SOUTHASIA_201503.nc"
+    world_regions_codes: [3, 7]
+
+  # Example of a native-grid domain (no footprint; explicit bounds).
+  INDIA_native_manual:
+    domain_name: "INDIA_native_manual"
+    world_regions_codes: [3, 7]
+    grid:
+      mode: native
+      lat_bounds: [-17, 59]
+      lon_bounds: [45, 127]
+
+  # New Zealand convective-scale model — a non-tiled, rotated-pole source. It has
+  # no world_regions_codes (one file covers the whole domain). The target is a
+  # regular lat/lon grid; longitudes are in 0–360 because the domain crosses 180°.
+  NZ:
+    domain_name: "NEWZEALAND"
+    data_type: "NZCSM"
+    grid:
+      mode: regular
+      lat_bounds: [-49, -30]
+      lon_bounds: [160, 185]
+      dlat: 0.02
+      dlon: 0.02
