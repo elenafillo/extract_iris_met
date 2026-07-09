@@ -1,0 +1,303 @@
+"""
+Joining per-region extractions into a monthly domain dataset.
+
+Extracts each world region in a domain (writing per-region NetCDF intermediates),
+then stitches them into a single monthly dataset: regions in the same longitude
+column are concatenated along latitude, then the columns are concatenated along
+longitude. Coordinates are normalised/deduplicated and 1-cell join seams filled.
+The result is renamed to the zarr-ready schema (lat/lon/levels) and returned.
+
+Ported from ``satellite_met_join_v2.py``.
+"""
+
+import datetime
+import glob
+import os
+
+import numpy as np
+import xarray as xr
+import dask
+
+from .config import Config, resolve_config_value
+from .iris_io import get_Mk
+from .metadata import apply_cf_metadata
+from .regions import (
+    get_saved_region_bounds,
+    build_domain_grid,
+    drop_duplicate_coords,
+)
+from .grid import build_target_grid
+from .extract import extract_region, log
+
+
+COORD_DECIMALS = 6
+
+# UM world regions laid out as they connect geographically. Regions in the same
+# column sit on top of each other (join along latitude); columns sit side by side
+# (join along longitude). Polar caps 1 and 14 are handled separately.
+GLOBAL_REGION_GRID = [
+    [2, 3, 4, 5],
+    [6, 7, 8, 9],
+    [10, 11, 12, 13],
+]
+
+# Variables carried through from iris that are not useful downstream and can
+# break concatenation when they differ across files. forecast_period and
+# forecast_reference_time are intentionally NOT dropped — they are kept as
+# time-indexed provenance coordinates by the extraction step.
+_DROP_VARIABLES = [
+    "level_height_0",
+    "sigma_0",
+]
+
+
+def normalize_coords(ds, decimals=COORD_DECIMALS):
+    """Round lat/lon to avoid tiny cross-region floating-point mismatches."""
+    return ds.assign_coords(
+        latitude=np.round(ds.latitude.values.astype(np.float64), decimals).astype(np.float32),
+        longitude=np.round(ds.longitude.values.astype(np.float64), decimals).astype(np.float32),
+    )
+
+
+def fill_join_seams(ds):
+    """Fill 1-cell NaN seams introduced at region boundaries during stitching."""
+    ds = ds.interpolate_na(dim="latitude", method="linear", limit=1)
+    ds = ds.interpolate_na(dim="longitude", method="linear", limit=1)
+    ds = ds.interpolate_na(dim="latitude", method="nearest", limit=1)
+    ds = ds.interpolate_na(dim="longitude", method="nearest", limit=1)
+    return ds
+
+
+def _preprocess_for_zarr(ds):
+    """Rename to the zarr schema (lat/lon/levels) and drop unhelpful variables."""
+    ds = ds.drop_vars([v for v in _DROP_VARIABLES if v in ds.variables], errors="ignore")
+
+    rename = {}
+    if "latitude" in ds.dims:
+        rename["latitude"] = "lat"
+    if "longitude" in ds.dims:
+        rename["longitude"] = "lon"
+    if "model_level_number" in ds.dims:
+        rename["model_level_number"] = "levels"
+    if rename:
+        ds = ds.rename(rename)
+
+    for dim in ("lat", "lon"):
+        if dim in ds.dims and ds.get_index(dim).has_duplicates:
+            ds = ds.drop_duplicates(dim)
+
+    return ds
+
+
+def _open_region(file_path, region_id):
+    """Open one per-region intermediate and clean its coordinates for stitching."""
+    log(f"Opening region {region_id}: {file_path}")
+    ds = xr.open_dataset(file_path)
+    for v in ds.data_vars:
+        ds[v] = ds[v].astype("float32")
+    ds = normalize_coords(ds)
+    ds = ds.sortby("longitude")
+    ds = drop_duplicate_coords(ds, "longitude")
+    ds = drop_duplicate_coords(ds, "latitude")
+    return ds
+
+
+def join_month(
+    domain_key,
+    year,
+    month,
+    cfg,
+    target=None,
+    use_interp=None,
+    scratch_dir=None,
+    extract_missing=True,
+    reuse_existing=True,
+    day=None,
+):
+    """
+    Extract and join all regions for a domain/year/month (or single day).
+
+    Parameters
+    ----------
+    domain_key : str
+        Domain key (e.g., 'SA').
+    year : int
+        Year (e.g., 2016).
+    month : int or str
+        Calendar month (1-12 int, or "01".."12").
+    cfg : met_extract.config.Config
+        Configuration object.
+    target : tuple of np.ndarray, optional
+        Precomputed ``(target_lat, target_lon)``. If None, built from the grid spec.
+    use_interp : bool, optional
+        Whether extraction interpolates onto the target grid. If None, inferred.
+    scratch_dir : str, optional
+        Directory for per-region intermediates. Defaults to ``{scratch_path}/files/``.
+    extract_missing : bool, optional
+        If True (default), run extraction for regions whose intermediate is absent.
+    reuse_existing : bool, optional
+        If True (default), skip extraction for regions whose intermediate exists.
+    day : int or str, optional
+        If given, join a single day instead of the whole month (pipeline smoke
+        test). Intermediates carry the full YYYYMMDD tag.
+
+    Returns
+    -------
+    xarray.Dataset
+        Domain dataset, renamed to the zarr schema (lat/lon/levels), ready to
+        append to a store.
+    """
+    if isinstance(cfg, dict):
+        cfg = Config(cfg)
+
+    month_int = int(month)
+    month_str = f"{month_int:02d}"
+    date_tag = f"{year}{month_str}{int(day):02d}" if day is not None else f"{year}{month_str}"
+    domain_cfg = cfg.get_domain(domain_key)
+    domain_name = domain_cfg["domain_name"]
+    regions = domain_cfg["world_regions_codes"]
+
+    scratch_root = resolve_config_value(cfg.get("scratch_path", ""), cfg.data)
+    if scratch_dir is None:
+        scratch_dir = os.path.join(scratch_root, "files")
+    os.makedirs(scratch_dir, exist_ok=True)
+
+    mk = get_Mk(year, month_int)
+
+    # Resolve the target grid once for the whole period.
+    if target is None:
+        target_lat, target_lon, inferred_interp = build_target_grid(domain_cfg, cfg, mk=mk)
+        target = (target_lat, target_lon)
+        if use_interp is None:
+            use_interp = inferred_interp
+    elif use_interp is None:
+        grid_mode = domain_cfg.get("grid", {}).get("mode", "footprint")
+        use_interp = grid_mode != "native"
+
+    # 1. Ensure each region has an intermediate file.
+    for region_id in regions:
+        region_file = os.path.join(
+            scratch_dir, f"{domain_name}_Met_{date_tag}_{region_id}.nc"
+        )
+        if reuse_existing and os.path.exists(region_file):
+            log(f"region {region_id} intermediate already exists, reusing")
+            continue
+        if not extract_missing:
+            raise FileNotFoundError(
+                f"Missing region intermediate and extract_missing=False: {region_file}"
+            )
+        extract_region(
+            domain_key,
+            year,
+            month_int,
+            region_id,
+            cfg,
+            target=target,
+            use_interp=use_interp,
+            scratch_dir=scratch_dir,
+            day=day,
+        )
+
+    # Confirm all region files now exist.
+    for region_id in regions:
+        pattern = os.path.join(scratch_dir, f"{domain_name}_Met_{date_tag}_*")
+        files = glob.glob(pattern)
+        if np.sum([f"_{region_id}.nc" in f for f in files]) != 1:
+            raise FileNotFoundError(
+                f"Missing intermediate for region {region_id} in {scratch_dir}"
+            )
+
+    # 2. Stitch regions into the domain grid.
+    region_grid = build_domain_grid(GLOBAL_REGION_GRID, regions)
+    log(f"region grid: {region_grid}")
+
+    with dask.config.set(**{"array.slicing.split_large_chunks": True}), \
+            xr.set_options(keep_attrs=True):
+        lat_arrays = []
+        for column in zip(*region_grid):
+            lat_datasets = []
+            for region_id in column:
+                if region_id is None:
+                    continue
+                file_path = os.path.join(
+                    scratch_dir, f"{domain_name}_Met_{date_tag}_{region_id}.nc"
+                )
+                lat_datasets.append(_open_region(file_path, region_id))
+
+            log(f"Merging column {column} along latitude")
+            merged_col = xr.concat(
+                lat_datasets,
+                dim="latitude",
+                join="inner",
+                coords="minimal",
+                compat="override",
+            )
+            merged_col = merged_col.sortby("latitude").drop_duplicates(dim="latitude")
+            merged_col = merged_col.sortby(["latitude", "longitude"])
+            lat_arrays.append(merged_col)
+
+        log("Concatenating all columns along longitude")
+        met = xr.concat(
+            lat_arrays,
+            dim="longitude",
+            join="inner",
+            coords="minimal",
+            compat="override",
+        )
+        met = met.drop_duplicates(dim="longitude")
+        met = met.sortby(["latitude", "longitude", "time"])
+        log(f"Full domain assembled — shape: {dict(met.sizes)}")
+
+        log("Filling potential 1-cell seams across region joins")
+        met = fill_join_seams(met)
+        met = met.assign_coords(
+            latitude=met.latitude.astype(np.float32),
+            longitude=met.longitude.astype(np.float32),
+        )
+        met = met.transpose("model_level_number", "latitude", "longitude", "time", ...)
+
+        # Drop spurious dataset-level attrs inherited from the iris cubes (these
+        # are per-variable properties that don't belong at dataset level).
+        for attr in ("units", "standard_name", "STASH"):
+            met.attrs.pop(attr, None)
+
+        # Rename to the zarr-ready schema (lat/lon/levels).
+        met = _preprocess_for_zarr(met)
+
+        # Record the mean grid spacing (degrees) as attributes.
+        lat_vals = np.asarray(met["lat"].values)
+        lon_vals = np.asarray(met["lon"].values)
+        if lat_vals.size > 1:
+            met.attrs["delta_lat"] = float(np.abs(np.diff(lat_vals)).mean())
+        if lon_vals.size > 1:
+            met.attrs["delta_lon"] = float(np.abs(np.diff(lon_vals)).mean())
+
+        # Stamp CF coordinate + global metadata (institution/references/... from
+        # config; empty fields omitted).
+        grid_mode = domain_cfg.get("grid", {}).get("mode", "footprint")
+        met = apply_cf_metadata(
+            met, cfg, mk=mk, grid_mode=grid_mode,
+            domain_name=domain_name, year=year, use_interp=use_interp,
+        )
+
+        log(f"Monthly dataset ready: {dict(met.sizes)} "
+            f"(delta_lat={met.attrs.get('delta_lat', 'n/a')}, "
+            f"delta_lon={met.attrs.get('delta_lon', 'n/a')})")
+
+    return met
+
+
+def cleanup_region_intermediates(domain_name, year, month, scratch_dir, day=None):
+    """Delete per-region NetCDF intermediates for a domain/year/month (or day)."""
+    month_str = f"{int(month):02d}"
+    date_tag = f"{year}{month_str}{int(day):02d}" if day is not None else f"{year}{month_str}"
+    pattern = os.path.join(scratch_dir, f"{domain_name}_Met_{date_tag}_*.nc")
+    removed = 0
+    for f in glob.glob(pattern):
+        try:
+            os.remove(f)
+            removed += 1
+        except OSError:
+            pass
+    log(f"cleaned up {removed} region intermediate(s) for {domain_name} {date_tag}")
+    return removed

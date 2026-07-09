@@ -1,0 +1,232 @@
+"""
+Iris data I/O utilities for loading UM meteorology data.
+
+Functions for loading .pp and .pp.gz files, handling coordinate callbacks,
+and determining which Mk version to use for a given date.
+"""
+
+import iris
+import os
+import glob
+import gzip
+import shutil
+import datetime
+
+
+def remove_coord_callback(cube, field, filename):
+    """
+    Remove problematic coordinates from iris cube during loading.
+
+    Removes the 'um_version' attribute if present, which can cause issues
+    in subsequent processing.
+
+    Parameters
+    ----------
+    cube : iris.Cube
+        The cube being loaded.
+    field : object
+        The field metadata.
+    filename : str
+        The filename being loaded from.
+    """
+    if "um_version" in cube.attributes.keys():
+        cube.attributes.pop("um_version")
+
+
+def get_Mk(year, month):
+    """
+    Determine the UM Mk version for a given year/month.
+
+    The Mk version determines the file naming convention and native resolution
+    of UM data. Mk boundaries can fall mid-year.
+
+    Parameters
+    ----------
+    year : int
+        The year (e.g., 2016).
+    month : str or int
+        The month, either 1-12 (int) or "01"-"12" (str).
+
+    Returns
+    -------
+    int
+        The Mk version (6, 7, 8, 9, 10, or 11).
+
+    Raises
+    ------
+    ValueError
+        If no Mk version is defined for the given date.
+    """
+    month = int(month) if isinstance(month, str) else month
+    month_str = f"{month:02d}"
+
+    if year in (2011, 2012) or (year == 2013 and month in range(1, 5)):
+        return 6
+    elif (year == 2013 and month in range(5, 13)) or (year == 2014 and month in range(1, 7)):
+        return 7
+    elif (year == 2014 and month in range(7, 13)) or (year == 2015 and month in range(1, 8)):
+        return 8
+    elif (year == 2015 and month in range(8, 13)) or (year == 2016) or (year == 2017 and month in range(1, 7)):
+        return 9
+    elif (year == 2017 and month in range(7, 13)) or (2017 < year < 2022) or (year == 2022 and month in range(1, 6)):
+        return 10
+    elif (year == 2022 and month in range(6, 13)) or year > 2022:
+        return 11
+    else:
+        raise ValueError(f"No Mk version found for year={year}, month={month_str}")
+
+
+def load_iris(filepath, Mk, date, vars, num, homefolder):
+    """
+    Load iris cubes from UM .pp or .pp.gz files.
+
+    Handles both compressed (.pp.gz) and uncompressed (.pp) files. For
+    compressed files, extracts them to a scratch directory before loading.
+
+    Parameters
+    ----------
+    filepath : str or tuple of str
+        Either a direct file path (str) or a 2-tuple (prefix, suffix) for
+        constructing the filename. If tuple, the filename is constructed as
+        prefix + date + suffix + num + ".pp[.gz]".
+    Mk : int
+        The UM Mk version (determines whether files are compressed).
+    date : str
+        The date string (e.g., "201601").
+    vars : list of str or iris.util.ConstraintMixin, optional
+        Variables/constraints to load. If None, loads all variables.
+    num : int, optional
+        Region or file number (used only with tuple-based filepath).
+    homefolder : str
+        Directory to extract uncompressed files to.
+
+    Returns
+    -------
+    iris.CubeList
+        Loaded cubes.
+
+    Raises
+    ------
+    Exception
+        If loading fails, raises and removes temporary files.
+    """
+    bad_files = ["MO201402011500.UMG_Mk7_I_L59PT9.pp"]
+
+    # If filepath is a string, load directly
+    if isinstance(filepath, str):
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"File not found: {filepath}")
+        print(f"[load_iris] loading single file: {filepath}")
+        try:
+            loaded = iris.load(filepath, vars, callback=remove_coord_callback)
+            print(f"[load_iris] loaded {len(loaded)} cube(s)")
+            return loaded
+        except Exception as e:
+            print(f"[load_iris] load failed: {e}")
+            raise
+
+    # Handle tuple-based filepath (original behavior)
+    # Mk 10 files are already unzipped
+    if Mk == 10:
+        archive_pattern = filepath[0] + date + filepath[1] + str(num) + ".pp"
+        matched = glob.glob(archive_pattern)
+        print(f"[load_iris] Mk{Mk} region {num} {date}: matched {len(matched)} "
+              f"uncompressed file(s)")
+        print(f"[load_iris]   archive pattern: {archive_pattern}")
+        if not matched:
+            raise FileNotFoundError(f"No files matched: {archive_pattern}")
+        try:
+            loaded = iris.load(matched, vars, callback=remove_coord_callback)
+        except Exception as e:
+            print(f"[load_iris] load failed for region {num} {date}: {e}")
+            os.system("rm -r " + homefolder + "MO" + date + "*")
+            raise
+        print(f"[load_iris] loaded {len(loaded)} cube(s) for region {num}")
+        return loaded
+
+    # Other Mks are compressed (.pp.gz) and must be unzipped to scratch first.
+    archive_pattern = filepath[0] + date + filepath[1] + str(num) + ".pp.gz"
+    files = glob.glob(archive_pattern)
+    scratch_pattern = homefolder + "*" + date + filepath[1] + str(num) + ".pp"
+    homefiles = glob.glob(scratch_pattern)
+
+    print(f"[load_iris] Mk{Mk} region {num} {date}: matched {len(files)} compressed "
+          f"archive file(s); {len(homefiles)} already unzipped in scratch")
+    print(f"[load_iris]   archive pattern: {archive_pattern}")
+    print(f"[load_iris]   scratch pattern: {scratch_pattern}")
+
+    # Reuse already-unzipped scratch files when the full set is present.
+    if files and len(homefiles) == len(files):
+        bad = {homefolder + b for b in bad_files}
+        kept = [h for h in homefiles if h not in bad]
+        n_skipped = len(homefiles) - len(kept)
+        msg = f"[load_iris] all {len(files)} file(s) already in scratch; loading without re-unzipping"
+        if n_skipped:
+            msg += f" ({n_skipped} known-bad file(s) skipped)"
+        print(msg)
+        try:
+            loaded = iris.load(kept, vars, callback=remove_coord_callback)
+            print(f"[load_iris] loaded {len(loaded)} cube(s) for region {num}")
+            return loaded
+        except Exception as e:
+            print(f"[load_iris] loading cached scratch failed ({e}); re-unzipping from archive")
+
+    if not files:
+        raise FileNotFoundError(f"No archive files matched: {archive_pattern}")
+
+    # Unzip each archive file to scratch, then load.
+    try:
+        all_outs = []
+        n_skipped = 0
+        for f in files:
+            base = os.path.basename(f).replace(".gz", "")
+            with gzip.open(f, "rb") as f_in:
+                with open(homefolder + base, "wb") as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            if base in bad_files:
+                n_skipped += 1
+            else:
+                all_outs.append(homefolder + base)
+        msg = f"[load_iris] unzipped {len(all_outs)} file(s) to scratch"
+        if n_skipped:
+            msg += f" ({n_skipped} known-bad file(s) skipped)"
+        print(msg)
+        loaded = iris.load(all_outs, vars, callback=remove_coord_callback)
+        print(f"[load_iris] loaded {len(loaded)} cube(s) for region {num}")
+        return loaded
+    except Exception as e:
+        print(f"[load_iris] unzip/load failed for region {num} {date}: {e}")
+        raise
+
+
+def delete_iris(homefolder, date, num):
+    """
+    Delete the unzipped .pp scratch files for one region/date.
+
+    Matches ``MO{date}*_L59PT{num}.pp`` so a region number is matched exactly at
+    the end of the filename — ``num=3`` no longer also deletes region 13's files
+    (which the old ``*{num}.pp`` glob did).
+
+    Parameters
+    ----------
+    homefolder : str
+        Directory containing the unzipped .pp files (trailing separator ok).
+    date : str
+        Glob key for the date (e.g., "201601" or "20150701").
+    num : int
+        World region number.
+
+    Returns
+    -------
+    int
+        Number of files removed.
+    """
+    pattern = os.path.join(homefolder, f"MO{date}*_L59PT{num}.pp")
+    files = glob.glob(pattern)
+    for f in files:
+        try:
+            os.remove(f)
+        except OSError as e:
+            print(f"[delete_iris] could not remove {f}: {e}")
+    print(f"[delete_iris] removed {len(files)} unzipped .pp file(s) for region {num} {date}")
+    return len(files)

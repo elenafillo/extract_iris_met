@@ -1,11 +1,16 @@
-# Logs and databases #
-######################
-\logs
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.cache/
 
+# Logs
+logs/
 
+# OS-generated files
+.DS_Store
 
-# OS generated files #
-######################
-\.cache
-\.ipynb_checkpoints
-\__pycache__
+# Native grids: regenerable via `python -m met_extract make-native-grid`.
+# Keep the folder tracked (via .gitkeep) but not its contents.
+data/*
+!data/.gitkeep

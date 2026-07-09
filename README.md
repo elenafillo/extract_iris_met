@@ -2,15 +2,15 @@
 This repo has functions to extract meteorological datasets from the UM model hosted on jasmin (iris .pp files)
 
 ## File Structure
-The UM model is hosted on JASMIN at `/gws/ssde/j25a/name/met_archive/Global/`. From 2011, it gets released in "Mk" blocks, under folders labelled `UMG_Mk{Mk_number}PT`. The following Mk numbers correspond to the following timeperiods: 
-| Mk Number    | Dates contained |
-| -------- | ------- |
-| Mk6  | Jan 2011 - March 2013    |
-| Mk7  | Apr 2013 - Jun 2014    |
-| Mk8  | Jul 2014 - Jul 2015    |
-| Mk9  | Aug 2015 - Jun 2017    |
-| Mk10  | Jul 2017 - May 2022    |
-| Mk11  | Jun 2022 -     |
+The UM model is hosted on JASMIN at `/gws/ssde/j25a/name/met_archive/Global/`. From 2011, it gets released in "Mk" blocks, under folders labelled `UMG_Mk{Mk_number}PT`. The following Mk numbers correspond to the following timeperiods and native resolutions: 
+| Mk Number    | Dates contained | Native Resolution (Δlat, Δlon) | Grid Size |
+| -------- | ------- | ------- | ------- |
+| Mk6  | Jan 2011 - March 2013    | 0.234375° × 0.351562° | 769 × 1024 |
+| Mk7  | Apr 2013 - Jun 2014    | 0.234375° × 0.351562° | 769 × 1024 |
+| Mk8  | Jul 2014 - Jul 2015    | 0.15625° × 0.234375° | 1152 × 1729 |
+| Mk9  | Aug 2015 - Jun 2017    | 0.15625° × 0.234375° | 1152 × 1536 |
+| Mk10  | Jul 2017 - May 2022    | (symlinked to /badc/, not extracted) | - |
+| Mk11  | Jun 2022 -     | (symlinked to /badc/, not extracted) | - |
 
 In each folder, the 3-hourly files have format `MO{year}{month}{day}{day_period}.UMG_Mk{Mk_number}_{variable_set}_L59PT{world_region}.pp`, eg `MO201403080000.UMG_Mk7_I_L59PT10.pp`
 - Date in format YYYYMMDD
@@ -18,6 +18,17 @@ In each folder, the 3-hourly files have format `MO{year}{month}{day}{day_period}
 - variable_set out of {I, M}. Each file contains a different list of variables (see lists at the bottom)
 - world_region, from 1-14. see map below
 - The files for Mk6-Mk9 are zipped (format .pp.gz) and need to be unzipped before being read. Mk10 onwards can be read directly.
+
+### Native Grid Resolution
+
+**Important:** The native UM grid resolution changes between Mk versions:
+- **Mk6-7 (coarser):** 0.234375° latitude × 0.351562° longitude
+- **Mk8-9 (finer):** 0.15625° latitude × 0.234375° longitude
+
+Pre-extracted native grids are saved in `data/native_grid_Mk{N}_*.nc` for reference and use in native-mode extraction. Each Mk includes:
+- Per-region grids (14 regions)
+- Stitched global grid
+- Metadata with per-region resolutions
 
 ![image](https://github.com/user-attachments/assets/f6dc8296-f87f-4d82-bcf5-533147d8e9a3)
 
