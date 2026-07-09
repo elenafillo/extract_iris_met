@@ -1,0 +1,185 @@
+# How To: Set Up `met_extract`
+
+First-time setup on JASMIN: load the Python environment, create your temp
+directory, and write your personal `config.yaml`. Do this once per account; after
+that you only touch `config.yaml` when you add a domain or change a path.
+
+> **See also:** [how_to_datatypes.md](how_to_datatypes.md) (what data/grids exist)
+> and [how_to_extract.md](how_to_extract.md) (running the extraction).
+
+---
+
+## 1. Get the code
+
+```bash
+cd /home/users/$USER            # or wherever you keep your repos
+git clone <repo-url> extract_iris_met
+cd extract_iris_met
+```
+
+Everything below is run **from the repo root** (`extract_iris_met/`). The config
+loader looks for `config.yaml` in the current working directory, so `python -m
+met_extract …` only works when you `cd` here first.
+
+---
+
+## 2. Python environment (JASMIN)
+
+The package runs under JASMIN's managed scientific Python stack, **jaspy**, which
+already ships iris, xarray, dask, zarr, numpy and pyyaml at compatible versions:
+
+```bash
+module purge
+module load jaspy
+```
+
+Put those two lines at the top of any interactive session or SLURM script.
+
+**Dependencies** (all provided by jaspy):
+
+| Package | Min version | Used for |
+| ------- | ----------- | -------- |
+| Python  | 3.10+ (tested 3.12) | — |
+| iris    | ≥ 3.0 | reading `.pp` / `.pp.gz` UM files |
+| xarray  | ≥ 2025.1 | datasets, zarr I/O |
+| dask    | any recent | lazy / chunked processing |
+| zarr    | 2.18 or 3.x | output stores (`zarr_format` picks the on-disk version) |
+| pyyaml  | any | reading `config.yaml` |
+
+There is no `environment.yml` yet; jaspy is the supported environment. If you run
+off-JASMIN, create an env with the packages above.
+
+---
+
+## 3. Set `TMPDIR` to scratch
+
+Reading Mk6–Mk9 data means decompressing `.pp.gz` files, and iris writes temp
+files while loading. By default those land in the node's small `/tmp`, which can
+fill up and kill a long run. Point `TMPDIR` at your **scratch** space (large,
+fast, purged periodically) instead:
+
+```bash
+export TMPDIR=/work/scratch-pw5/$USER/tmp
+mkdir -p "$TMPDIR"
+```
+
+- Run this in every session (or add it to a SLURM script) **before** calling
+  `met_extract`.
+- `/work/scratch-pw5/` is the same scratch filesystem the pipeline uses for
+  per-region intermediates — see `scratch_path` in the config below.
+- Scratch is not backed up and is auto-cleaned; it is the right place for
+  transient temp/decompression files, not for outputs.
+
+---
+
+## 4. Create your `config.yaml`
+
+`config.yaml` holds per-user paths and is **git-ignored**. Copy the committed
+template and edit your copy:
+
+```bash
+cp config.example.yaml config.yaml
+```
+
+Then edit `config.yaml`. The shared structure (domains, data-type paths, grid
+specs) is versioned in [`config.example.yaml`](../config.example.yaml); the only
+strictly personal field is `met_extract_author`.
+
+### Fields to check / fill
+
+```yaml
+user: ""                         # leave blank — auto-filled from $USER
+met_extract_author: "Your Name (id)"   # recorded in output provenance
+
+scratch_path: "/work/scratch-pw5/{user}/"          # per-region intermediates
+zarr_save_directory: "/gws/ssde/j25b/acrg/{user}/satellite_met_zarr/"  # outputs
+zarr_format: 2                   # 2 = readable by zarr 2.18.7 and 3.x; 3 = newer only
+
+reference_footprints_directory: "/gws/ssde/j25b/acrg/elenafi/example_footprints"
+native_grid_directory: "data/"   # saved native UM grids (relative to repo root)
+```
+
+- `{user}` is expanded from the `$USER` environment variable at runtime — leave
+  `user: ""` and it fills itself in.
+- Make sure `scratch_path`, `zarr_save_directory` and `native_grid_directory`
+  exist or are writable by you.
+
+### Metadata block (CF attributes stamped into every store)
+
+Fill in what applies; **leave a field `""` to omit it** (blank fields are not
+written as empty attributes):
+
+```yaml
+metadata:
+  conventions: "CF-1.10"
+  institution: "University of Bristol, Atmospheric Chemistry Research Group"
+  references: ""     # DOI / URL for the dataset or method
+  title: ""          # optional; auto "UM meteorology, {DOMAIN} {year}" if empty
+  source: ""         # optional; auto from the UM Mk version if empty
+  comment: ""        # optional; appended to the auto processing comment
+```
+
+### Data-type archive paths
+
+Each data type's structural properties live in code
+(`met_extract/sources.py`); in config you only set the **archive path** per type:
+
+```yaml
+data_types:
+  UM_Global:
+    archive_directory: "/gws/ssde/j25a/name/met_archive/Global/"
+  UM1p5km:
+    archive_directory: "/gws/ssde/j25a/name/met_archive/LimitedArea/"
+  NZCSM:
+    archive_directory: ""    # set once the NZCSM archive exists
+```
+
+See [how_to_datatypes.md](how_to_datatypes.md) for what each type is.
+
+---
+
+## 5. Generate native grids (one-off)
+
+Native UM grids are regenerable and **not committed** (`data/` is git-ignored).
+Before your first `native`-mode run — and safe to run any time — build them:
+
+```bash
+python -m met_extract make-native-grid --sample-date 201601
+```
+
+This writes `data/native_grid_Mk{6..9}_*.nc` plus `_info.yaml` metadata. Only
+Mk6–Mk9 are currently accessible; Mk10/11 are symlinked to `/badc/` and will be
+reported as missing. See [how_to_datatypes.md](how_to_datatypes.md#native-grids).
+
+---
+
+## 6. Sanity-check the setup
+
+Do a dry run — it resolves config, domain and dates without writing anything:
+
+```bash
+python -m met_extract run --domain SA --date 201601 --dry-run
+```
+
+Then a cheap real end-to-end test on a single day (writes a small, separate debug
+store, never touches your yearly stores):
+
+```bash
+python -m met_extract run --domain SA --date 20160115
+```
+
+If that produces a `…_Met_20160115.zarr`, your environment, paths and config are
+good. Move on to [how_to_extract.md](how_to_extract.md) for real runs.
+
+---
+
+## Setup checklist
+
+- [ ] `cd` into the repo root
+- [ ] `module purge && module load jaspy`
+- [ ] `export TMPDIR=/work/scratch-pw5/$USER/tmp && mkdir -p "$TMPDIR"`
+- [ ] `cp config.example.yaml config.yaml` and edit paths + `met_extract_author`
+- [ ] `python -m met_extract make-native-grid --sample-date 201601`
+- [ ] `python -m met_extract run --domain SA --date 20160115` (smoke test)
+</content>
+</invoke>

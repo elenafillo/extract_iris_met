@@ -1,0 +1,189 @@
+# How the Code Works: structure & pipeline
+
+A map of the codebase: the file layout, what each module does, and how a single
+`run` flows through them. Read this if you want to modify the pipeline (add a data
+type, a grid mode, or a variable) rather than just use it.
+
+> **See also:** [how_to_setup.md](how_to_setup.md),
+> [how_to_datatypes.md](how_to_datatypes.md), [how_to_extract.md](how_to_extract.md).
+
+---
+
+## 1. Repo layout
+
+```
+extract_iris_met/
+├── met_extract/                # ← the package (all current logic)
+│   ├── __init__.py             # package metadata (version)
+│   ├── __main__.py             # entry point: `python -m met_extract`
+│   ├── cli.py                  # argparse CLI + run/extract/make-native-grid orchestration
+│   ├── config.py               # config loading, {user} templating, Config accessor
+│   ├── sources.py              # MetSource data-type descriptors + registry
+│   ├── iris_io.py              # reading .pp/.pp.gz with iris; Mk calendar
+│   ├── regions.py              # world-14 region bounds & domain-grid trimming
+│   ├── grid.py                 # build target grid (footprint/regular/native); native-grid I/O
+│   ├── rotated.py              # rotated-pole regridding + wind rotation (UM1p5km, NZCSM)
+│   ├── extract.py              # per-region + single-file extraction
+│   ├── join.py                 # stitch regions → monthly domain dataset
+│   ├── metadata.py             # CF / provenance attributes
+│   └── zarr_io.py              # append to yearly zarr store + finalize attrs
+│
+├── config.example.yaml         # committed config template
+├── config.yaml                 # your personal config (git-ignored)
+├── data/                       # saved native grids (git-ignored, regenerable)
+├── How_Tos/                    # these guides
+├── notebooks/                  # extracting_and_checking.ipynb (validation)
+├── scripts/                    # SLURM templates (placeholder; TODO)
+├── logs/                       # SLURM logs (git-ignored)
+├── pp_data/                    # sample raw .pp data (git-ignored)
+├── check_met_files.py          # standalone archive-coverage checker
+├── README.md                   # overview + pointers
+└── usage.md                    # development roadmap
+```
+
+Legacy pre-refactor files still in the root — **superseded by `met_extract/`**,
+kept only until callers are migrated: `met_functions.py`,
+`satellite_met_1b1_fixed_v3.py`, `satellite_met_join_v2.py` (+ a `copy`),
+`data_utils/convert_met_to_zarr.py`, the old `run_*_job.txt` SLURM files, and the
+exploratory root notebooks (`check_joined_met.ipynb`, `exploring_met_data.ipynb`,
+`join_regions.ipynb`, `Untitled.ipynb`). Don't build on these.
+
+---
+
+## 2. The package, module by module
+
+### Entry & configuration
+
+- **`__main__.py`** — makes `python -m met_extract …` work; just calls
+  `cli.main()`.
+- **`cli.py`** — the command layer. Defines the `run`, `extract` and
+  `make-native-grid` subcommands (argparse), parses `--date` into
+  year/month/day periods, and orchestrates the workflow: resume logic (which
+  months are already in a store), the single-day debug path (`_run_single_day`),
+  and the non-tiled single-file path (`_run_non_tiled`). It is the only module
+  that stitches the others together.
+- **`config.py`** — `load_config()` reads `config.yaml` from the CWD and fills
+  `user` from `$USER`; `resolve_config_value()` expands `{user}` templates; the
+  `Config` class wraps the dict with `get()`, `get_domain()`, and
+  `resolve_domain_name()` (accepts a key like `SA` or a `domain_name` like
+  `SOUTHAMERICA`).
+
+### The data-type model
+
+- **`sources.py`** — the abstraction that lets one pipeline serve very different
+  products. `MetSource` is a frozen dataclass describing a data type on every
+  axis (archive path, filename template, grid type, region scheme, tiled?, level
+  count, cadence, compression, Mk calendar, which variable groups, …). The
+  `SOURCES` registry holds `UM_Global`, `UM1p5km`, `NZCSM`; `get_source(name,
+  cfg)` returns one with config path-overrides applied. It also owns the Mk
+  calendars, the region-scheme lookup, level subsampling (`levels()`), and
+  filename globbing (`list_files`). **This is the data model only — it reads no
+  cubes.**
+
+### Reading & gridding
+
+- **`iris_io.py`** — turns archive paths into iris cubes. `get_Mk(year, month)`
+  is the canonical Mk-boundary calendar. `load_files()` is the source-agnostic
+  loader: decompresses `.pp.gz` into scratch (reusing what's already there),
+  reads `.pp` directly, skips known-bad files. `delete_iris()` cleans up unzipped
+  scratch; `remove_coord_callback` strips the `um_version` attr on load.
+- **`regions.py`** — the `world14` scheme: `get_saved_region_bounds()` (the 14
+  region boxes), `find_overlapping_regions()` (which regions a bbox needs),
+  `build_domain_grid()` (trim the global 3×4 region grid to a domain),
+  `drop_duplicate_coords()` and `get_edge_size()`.
+- **`grid.py`** — `build_target_grid(domain_cfg, cfg, mk)` dispatches on
+  `grid.mode` → footprint (pad a reference footprint), regular (`np.arange`
+  mesh), or native (load the saved native grid, subset to bounds). Also the
+  native-grid I/O used by `make-native-grid`: `extract_native_grid()`,
+  `save_native_grid()`, `load_native_grid()`, `get_mk_native_resolution()`.
+- **`rotated.py`** — for rotated-pole sources (UM1p5km, NZCSM). Builds a regular
+  lat/lon target cube, regrids rotated→regular with iris, and rotates
+  grid-relative wind/stress vectors to true north (`rotate_winds_true_north`)
+  before regridding. Records rotated-pole provenance (`rotated_pole_attrs`).
+
+### The pipeline steps
+
+- **`extract.py`** — the numerical core. `extract_region()` extracts one world
+  region of a tiled source; `extract_single()` extracts a whole-domain
+  single-file source (no regions). Both: pick cubes **by name + level presence**
+  (`_pick`, so a changed archive raises instead of mis-selecting), align staggered
+  winds onto the mass grid, keep 1-in-3 model levels, re-stamp 3-hour time-mean
+  fields to the interval end (`_restamp_to_interval_end`), build a real `time`
+  dim, regrid onto the target (or pass through in native mode), slice to bounds,
+  and write a per-region NetCDF intermediate to scratch.
+- **`join.py`** — `join_month()` ensures each region's intermediate exists
+  (calling `extract_region` for any missing), then stitches: concat regions in a
+  longitude column along latitude, then concat the columns along longitude; fill
+  1-cell seams; normalise/dedupe coords; rename to the `lat`/`lon`/`levels`
+  schema; stamp CF + delta metadata. Returns a monthly domain `xr.Dataset`.
+  `cleanup_region_intermediates()` deletes the scratch NetCDFs afterwards.
+- **`metadata.py`** — `apply_cf_metadata()` writes the CF coordinate attrs and
+  the global attrs (Conventions/title/institution/source/… from the config
+  `metadata:` block, empty fields omitted, plus an auto processing comment).
+  `to_zarr_schema()` and `add_delta_attrs()` are the shared rename/attr helpers
+  used by both the tiled and non-tiled paths.
+- **`zarr_io.py`** — `append_month_to_year_store()` writes the first month with
+  `mode='w'` and an explicit pinned encoding (`_build_encoding`: float32, NaN
+  fill, zstd Blosc, CF `time` units) and appends later months along `time`.
+  `finalize_attrs()` reopens the store to record provenance/completeness
+  (`months_present`, `missing_months`, `year_complete`, `time_start/end`, …) and
+  re-consolidates metadata.
+
+---
+
+## 3. The processing pipeline
+
+A tiled-source `run` (e.g. `--domain SA --date 2016`) flows top to bottom:
+
+```
+cli.cmd_run
+  │  resolve domain (config.Config) · pick data type (sources.get_source)
+  │  parse --date → periods · build target grid (grid.build_target_grid)
+  │
+  └─ for each year → for each month:
+       join.join_month
+         │  for each region needing it:
+         │    extract.extract_region
+         │        iris_io.load_files ── read .pp(.gz), decompress to scratch
+         │        _pick cubes by name · align winds (rotated.* if rotated-pole)
+         │        keep 1-in-3 levels · build time dim · regrid to target · slice
+         │        → write per-region NetCDF to {scratch}/files/
+         │  stitch regions (concat lat within lon columns, then lon)
+         │  fill seams · rename → lat/lon/levels (metadata.to_zarr_schema)
+         │  metadata.apply_cf_metadata (CF + provenance from config)
+         │  → return monthly xr.Dataset
+         │
+       zarr_io.append_month_to_year_store   (first month mode='w' + encoding;
+       │                                      later months append along time)
+       join.cleanup_region_intermediates    (unless --keep-intermediates)
+  finalize: zarr_io.finalize_attrs           (completeness/provenance attrs)
+
+OUTPUT: {zarr_save_directory}/{DOMAIN}/{DOMAIN}_Met_{YYYY}.zarr
+```
+
+Variations handled in `cli.py`:
+
+- **Single day** (`--date YYYYMMDD`) → `_run_single_day`: one day, into a separate
+  `{DOMAIN}_Met_{YYYYMMDD}.zarr` debug store, always a fresh write.
+- **Non-tiled source** (e.g. NZCSM) → `_run_non_tiled`: no join;
+  `extract.extract_single` regrids the whole-domain file and appends a day-batch
+  at a time so the big timesteps never all sit in memory.
+
+---
+
+## 4. Where to change things
+
+| To… | Edit |
+| --- | ---- |
+| Add a **data type** (new product/archive) | add a `MetSource` to `SOURCES` in [`sources.py`](../met_extract/sources.py); set its archive path in `config.yaml → data_types:` |
+| Add a **grid mode** | extend `build_target_grid` and add a `_build_*_grid` in [`grid.py`](../met_extract/grid.py) |
+| Change **which variables** are kept | edit the `*_vars` tuples on the `MetSource` in [`sources.py`](../met_extract/sources.py) |
+| Change **level subsampling** | `level_stride` on the `MetSource` (or `levels()`) |
+| Add a **region scheme** (e.g. the UK-16 tiles) | implement it in `_REGION_SCHEMES` ([`sources.py`](../met_extract/sources.py)) + [`regions.py`](../met_extract/regions.py) |
+| Change **output encoding / chunking** | [`zarr_io.py`](../met_extract/zarr_io.py) (`_ZARR_CHUNKS`, `_build_encoding`) |
+| Change **CF / provenance attrs** | [`metadata.py`](../met_extract/metadata.py) + the `metadata:` config block |
+| Add a **CLI option / subcommand** | [`cli.py`](../met_extract/cli.py) |
+| Add a **domain** | `config.yaml → domains:` only (no code) — see [how_to_extract.md](how_to_extract.md#6-add-a-new-domain) |
+
+Open questions and planned work are tracked in [`usage.md`](../usage.md).
+</content>

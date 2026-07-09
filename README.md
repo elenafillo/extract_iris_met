@@ -1,105 +1,57 @@
 # extract_iris_met
-This repo has functions to extract meteorological datasets from the UM model hosted on jasmin (iris .pp files)
 
-## Setup
-The config is not committed (it holds per-user details). On first checkout, copy the template and edit your copy:
+Extract meteorology from the Met Office Unified Model (UM) — iris `.pp` files
+hosted on JASMIN — into analysis-ready yearly [Zarr](https://zarr.dev/) stores.
+
+`met_extract` is a single command-line tool that extracts each world region,
+joins them into your domain, and appends the result to a yearly store, with
+support for multiple data types (global UM, limited-area, convective-scale),
+three grid modes, and CF/provenance metadata.
+
 ```bash
-cp config.example.yaml config.yaml
-# then edit config.yaml — set met_extract_author, check the paths, add your domains
+python -m met_extract run --domain SA --date 2016
+# → {zarr_save_directory}/SOUTHAMERICA/SOUTHAMERICA_Met_2016.zarr
 ```
-`config.yaml` is git-ignored; `config.example.yaml` holds the shared structure (domains, data-type archive paths, grid specs).
 
-## File Structure
-The UM model is hosted on JASMIN at `/gws/ssde/j25a/name/met_archive/Global/`. From 2011, it gets released in "Mk" blocks, under folders labelled `UMG_Mk{Mk_number}PT`. The following Mk numbers correspond to the following timeperiods and native resolutions: 
-| Mk Number    | Dates contained | Native Resolution (Δlat, Δlon) | Grid Size |
-| -------- | ------- | ------- | ------- |
-| Mk6  | Jan 2011 - March 2013    | 0.234375° × 0.351562° | 769 × 1024 |
-| Mk7  | Apr 2013 - Jun 2014    | 0.234375° × 0.351562° | 769 × 1024 |
-| Mk8  | Jul 2014 - Jul 2015    | 0.15625° × 0.234375° | 1152 × 1729 |
-| Mk9  | Aug 2015 - Jun 2017    | 0.15625° × 0.234375° | 1152 × 1536 |
-| Mk10  | Jul 2017 - May 2022    | (symlinked to /badc/, not extracted) | - |
-| Mk11  | Jun 2022 -     | (symlinked to /badc/, not extracted) | - |
+## Quick start
 
-In each folder, the 3-hourly files have format `MO{year}{month}{day}{day_period}.UMG_Mk{Mk_number}_{variable_set}_L59PT{world_region}.pp`, eg `MO201403080000.UMG_Mk7_I_L59PT10.pp`
-- Date in format YYYYMMDD
-- Day period, out of {0000, 0300, 0600, 0900, 1200, etc until 2100}
-- variable_set out of {I, M}. Each file contains a different list of variables (see lists at the bottom)
-- world_region, from 1-14. see map below
-- The files for Mk6-Mk9 are zipped (format .pp.gz) and need to be unzipped before being read. Mk10 onwards can be read directly.
+```bash
+cd extract_iris_met
+module purge && module load jaspy                       # JASMIN Python env
+export TMPDIR=/work/scratch-pw5/$USER/tmp && mkdir -p "$TMPDIR"
+cp config.example.yaml config.yaml                      # then edit your copy
+python -m met_extract make-native-grid --sample-date 201601   # one-off
+python -m met_extract run --domain SA --date 20160115   # single-day smoke test
+```
 
-### Native Grid Resolution
+`config.yaml` is git-ignored (per-user paths). The shared structure — domains,
+data-type archive paths, grid specs — lives in `config.example.yaml`.
 
-**Important:** The native UM grid resolution changes between Mk versions:
-- **Mk6-7 (coarser):** 0.234375° latitude × 0.351562° longitude
-- **Mk8-9 (finer):** 0.15625° latitude × 0.234375° longitude
+## Documentation → [`How_Tos/`](How_Tos/)
 
-Pre-extracted native grids are saved in `data/native_grid_Mk{N}_*.nc` for reference and use in native-mode extraction. Each Mk includes:
-- Per-region grids (14 regions)
-- Stitched global grid
-- Metadata with per-region resolutions
+| Guide | What it covers |
+| ----- | -------------- |
+| [How_Tos/how_to_setup.md](How_Tos/how_to_setup.md) | Environment (jaspy), `TMPDIR`, writing `config.yaml`, native grids — **start here** |
+| [How_Tos/how_to_datatypes.md](How_Tos/how_to_datatypes.md) | The data types, Mk blocks & resolutions, world regions, grid modes, variables |
+| [How_Tos/how_to_extract.md](How_Tos/how_to_extract.md) | The CLI: `run` / `extract` / `make-native-grid`, options, resume, SLURM, adding a domain |
+| [How_Tos/how_to_code.md](How_Tos/how_to_code.md) | Codebase map — what each module does and how the pipeline flows |
 
-![image](https://github.com/user-attachments/assets/f6dc8296-f87f-4d82-bcf5-533147d8e9a3)
+Development roadmap and open questions: [`usage.md`](usage.md).
 
+## At a glance
 
-## Step-by-step of extracting met
-1. Define domain you want to extract, and which regions it covers [To Do - Add visualisations on notebook]
-2. Use `extract_one_by_one` file to unzip any necessary files, copy them to scratch, extract the necessary data from each region and save it, separately
-3. Use `join_regions` to join the extracted regions, to cover your specified domain. Currently the setup can join two regions (along the latitude axis, ie side by side, or along the longitude axis, ie on top of each other), or four regions (forming a rectangle).
-4. Transfer data to a different server (eg BluePebble)
+- **Data types:** `UM_Global` (global UM, Mk6–11), `UM1p5km` (1.5 km UK
+  limited-area), `NZCSM` (New Zealand convective-scale). Only the archive path is
+  per-environment; structural properties are code-defined in
+  [`met_extract/sources.py`](met_extract/sources.py).
+- **Availability:** Global Mk6–Mk9 (2011-01 … 2017-06) are extractable today;
+  Mk10/11 are symlinked to `/badc/` and not yet accessible.
+- **Grid modes:** `footprint` (default), `regular`, `native` — set per domain in
+  config. See [how_to_datatypes.md](How_Tos/how_to_datatypes.md).
+- **Output:** one yearly Zarr store per domain, dims `time × levels × lat × lon`,
+  float32 + zstd, CF + provenance attributes.
 
-### 1. Defining domain
-Check the notebook for examples
-
-### 2.
-### 3.
-### 4. Transferring data
-  1. Copy your JASMIN private key from your local computer to `/home/user/ab11111/.ssh` (you can drag the file into the VSCode file tree, and then move it to the .ssh folder)
-  2. Change the permissions on the private key  `chmod 600 /user/home/ab11111/.ssh/id_ecdsa_jasmin`
-  3. Add the private key (you might need to do this step every time?)
-     ```
-     >> eval $(ssh-agent -s)
-     Agent pid 1942693
-     >> ssh-add /user/home/ab11111/.ssh/id_ecdsa_jasmin
-     Enter passphrase for /user/home/ab11111/.ssh/id_ecdsa_jasmin:
-
-  4. From the BP terminal, transfer the data using rsync (rsync "synchronises" a destination folder from a source folder, doing a smart copy - it only copies files that aren't already in the destination folder. 
-     ```
-     rsync -ra --info=progress2 -v your_jasmin_username@xfer-vm-01.jasmin.ac.uk:/gws/nopw/j04/acrg/acrg/elenafi/satellite_met/NORTHAFRICA/ /group/chemistry/acrg/met_archive/UM/NORTHAFRICA/
-     ```
-     
-    
-
-## Variable lists:
-| variable_set    | Variable Number | Name | Notes |
-| -------- | ------- |------- |------- |
-| M  | 0    |  m01s05i220 |   |
-| M  | 1    |  m01s05i223 |   |
-| M  | 2    |  air_pressure_at_convective_cloud_base / (Pa) |   |
-| M  | 3    | convective_rainfall_flux / (kg m-2 s-1) |   |
-| M  | 4    | convective_snowfall_flux / (kg m-2 s-1) |   |
-| M  | 5    | high_type_cloud_area_fraction  |   |
-| M  | 6    |low_type_cloud_area_fraction  |   |
-| M  | 7    | mass_fraction_of_cloud_ice_in_air |  has height variable   |
-| M  | 8    |  mass_fraction_of_cloud_liquid_water_in_air | has height variable  |
-| M  | 9    | medium_type_cloud_area_fraction |   |
-| M  | 10    |stratiform_rainfall_flux  |   |
-| M  | 11    | stratiform_snowfall_flux |   |
-| I  | 0    |  m01s03i026 |   |
-| I  | 1    |  m01s03i319  | has "pseudo level" variable  |
-| I  | 2    |  anopy water on tiles / (kg/m^2)|   |
-| I  | 3    | m01s03i462 |   |
-| I  | 4    | atmosphere_downward_eastward_stress / (Pa) |   |
-| I  | 5    | atmosphere_downward_northward_stress / (Pa)   |   |
-| I  | 6    |air_pressure / (Pa)  | has height variable  |
-| I  | 7    | air_pressure_at_sea_level / (Pa) |    |
-| I  | 8    |  air_temperature / (K)  |   |
-| I  | 9    |air_temperature / (K) | has height variable  |
-| I  | 10    |atmosphere_boundary_layer_thickness |   |
-| I  | 11    | moisture_content_of_soil_layer  | has depth variable  |
-| I  | 12    | specific_humidity / (kg kg-1)  |  has height variable |
-| I  | 13    | surface_air_pressure / (Pa)   |   |
-| I  | 14    | surface_upward_sensible_heat_flux / (W m-2) |   |
-| I  | 15    |upward_air_velocity / (m s-1)   | has height variable  |
-| I  | 16    | x_wind / (m s-1)  | has height variable  |
-| I  | 17    | y_wind / (m s-1)  | has height variable  |
-
+> **Note:** the `satellite_met_*.py` / `met_functions.py` scripts and the
+> `run_*_job.txt` SLURM files in the repo root are the pre-refactor originals,
+> kept for reference only — the supported workflow is `python -m met_extract`.
+</content>
