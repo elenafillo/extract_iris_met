@@ -14,6 +14,7 @@ import datetime
 import os
 import warnings
 
+import iris
 import numpy as np
 import xarray as xr
 import dask
@@ -22,60 +23,20 @@ from .config import Config, resolve_config_value
 from .iris_io import load_files, delete_iris
 from .grid import build_target_grid
 from .sources import get_source
+from .rotated import (
+    latlon_target_cube,
+    regrid_to_latlon,
+    rotate_winds_true_north,
+    rotated_pole_attrs,
+)
 
 
-# Load only one in every three model levels (plus the surface) to reduce memory.
-# range(1, 60)[2::3] → 3, 6, 9, ... 57; prefixed with level 1.
-LEVELS = [1] + list(range(1, 60))[2::3]
-
-# Constraints passed to iris.load to limit what is read from each region file.
-# Note air_temperature resolves to two cubes (a 3D field with model levels and a
-# 1.5 m surface field), so iris returns len(VARS)+1 cubes.
-VARS = [
-    "air_pressure",
-    "air_pressure_at_sea_level",
-    "air_temperature",
-    "atmosphere_boundary_layer_thickness",
-    "atmosphere_downward_eastward_stress",
-    "atmosphere_downward_northward_stress",
-    "specific_humidity",
-    "surface_air_pressure",
-    "surface_upward_sensible_heat_flux",
-    "upward_air_velocity",
-    "x_wind",
-    "y_wind",
-]
-
-# --- Instantaneous fields (snapshot at the valid time) ---
-# Already on the mass grid, selected by (name, want_levels). want_levels
-# disambiguates names that resolve to both a 3D and a surface cube
-# (air_temperature → keep the 3D field, drop the 1.5 m one).
-MASS_VARS = [
-    ("air_pressure", True),
-    ("air_pressure_at_sea_level", False),
-    ("air_temperature", True),
-    ("atmosphere_boundary_layer_thickness", False),
-    ("specific_humidity", True),
-    ("surface_air_pressure", False),
-    ("upward_air_velocity", True),
-]
-
-# Staggered 3D winds on the C-grid: subsample levels, then interpolate onto the
-# mass grid.
-WIND_VARS = [("x_wind", True), ("y_wind", True)]
-
-# --- Time-averaged fields (3-hour means over the forecast interval) ---
-# In the archive these are stamped at the interval MIDPOINT, carry time bounds,
-# and come from a *different* forecast run than the instantaneous fields — so they
-# live on a different (time, forecast_period, forecast_reference_time) grid and
-# cannot be merged directly. We re-stamp them to the interval END (which equals
-# the instantaneous valid time), drop their own forecast bookkeeping, and merge on
-# valid time. Their averaging convention is recorded in each variable's attrs.
-AVERAGED_MASS_VARS = ["surface_upward_sensible_heat_flux"]          # on the mass grid
-AVERAGED_STAGGERED_VARS = [                                         # staggered → interp
-    "atmosphere_downward_eastward_stress",   # offset in longitude (like x_wind)
-    "atmosphere_downward_northward_stress",  # offset in latitude  (like y_wind)
-]
+# Variable groups (which cubes to extract and how each is gridded) now live on
+# the MetSource — see met_extract.sources. They are selected by (name,
+# want_levels) via _pick. Time-averaged fields (fluxes/stresses) are 3-hour means
+# stamped at the interval MIDPOINT from a different forecast run; we re-stamp them
+# to the interval END to align with the instantaneous fields (see
+# _restamp_to_interval_end), recording the convention in this note.
 _AVERAGED_NOTE = (
     "3-hour time-mean ending at the timestamp; re-stamped from the UM interval "
     "midpoint to align with the instantaneous fields."
@@ -337,20 +298,20 @@ def extract_region(
             xr.set_options(keep_attrs=True):
         t0 = datetime.datetime.now()
         files = source.list_files(date, region=region_id, mk=mk)
-        cube = load_files(files, VARS, scratch_root + os.sep)
+        cube = load_files(files, source.load_vars(), scratch_root + os.sep)
         log(f"region {region_id} loaded in {(datetime.datetime.now() - t0).total_seconds():.1f}s")
 
         # --- Instantaneous group: mass-grid variables + staggered winds -------
         # Cubes are selected by name + level presence (see _pick) so a changed
         # archive raises rather than silently mis-selecting.
         most_variables = xr.combine_by_coords(
-            [_dataarray_from_iris_safely(_pick(cube, name, lvl)) for name, lvl in MASS_VARS]
+            [_dataarray_from_iris_safely(_pick(cube, name, lvl)) for name, lvl in source.mass_vars]
         ).sel(model_level_number=levels)
         mass_lat = most_variables.latitude.values
         mass_lon = most_variables.longitude.values
 
         winds = []
-        for name, _ in WIND_VARS:
+        for name, _ in source.wind_vars:
             da = xr.combine_by_coords(
                 [_dataarray_from_iris_safely(_pick(cube, name, True))], compat="override"
             ).sel(model_level_number=levels)
@@ -364,10 +325,10 @@ def extract_region(
         # merged with the instantaneous fields until re-stamped onto the shared
         # valid-time axis (see AVERAGED_* and _restamp_to_interval_end).
         avg_arrays = []
-        for name in AVERAGED_MASS_VARS:
+        for name in source.averaged_mass_vars:
             c = _restamp_to_interval_end(_pick(cube, name, False))
             avg_arrays.append(_dataarray_from_iris_safely(c))
-        for name in AVERAGED_STAGGERED_VARS:
+        for name in source.averaged_staggered_vars:
             c = _restamp_to_interval_end(_pick(cube, name, True))
             da = _dataarray_from_iris_safely(c)
             if "model_level_number" in da.coords:
@@ -457,5 +418,161 @@ def extract_region(
             f"{(datetime.datetime.now() - t0).total_seconds():.1f}s ({size_mb:.1f} MB); "
             f"total {(datetime.datetime.now() - region_start).total_seconds():.1f}s ----"
         )
+
+    return filename
+
+
+def extract_single(
+    domain_key,
+    date,
+    cfg,
+    target=None,
+    scratch_dir=None,
+    save=False,
+    source=None,
+):
+    """
+    Extract a whole-domain, single-file (non-tiled) source for a time window.
+
+    For sources like NZCSM one file already covers the whole domain, so there is
+    no region loop and no join. Fields on a rotated-pole grid are regridded onto
+    the target regular lat/lon grid (iris), with winds rotated to true north
+    first; time-averaged fields are reconciled onto the valid-time axis exactly as
+    in :func:`extract_region`. The native rotated-pole parameters are recorded in
+    the output attributes.
+
+    Parameters
+    ----------
+    domain_key : str
+        Domain key.
+    date : str
+        Glob key for the time window (e.g. 'YYYYMMDD' for a day, 'YYYYMMDDHH' for
+        an hour) — matched against the source's single-file template.
+    cfg : met_extract.config.Config
+    target : tuple of np.ndarray, optional
+        Precomputed ``(target_lat, target_lon)`` regular grid. If None, built from
+        the domain's grid spec.
+    scratch_dir : str, optional
+        Directory for the intermediate NetCDF (only used when ``save``).
+    save : bool, optional
+        If True, write an intermediate NetCDF and return its path; otherwise
+        return the in-memory dataset (the default for the batched run loop).
+    source : met_extract.sources.MetSource, optional
+        Resolved source; if None, resolved from the domain's ``data_type``.
+
+    Returns
+    -------
+    pathlib.Path/str or xarray.Dataset
+    """
+    if isinstance(cfg, dict):
+        cfg = Config(cfg)
+
+    domain_cfg = cfg.get_domain(domain_key)
+    domain_name = domain_cfg["domain_name"]
+    if source is None:
+        source = get_source(domain_cfg.get("data_type", "UM_Global"), cfg)
+
+    scratch_root = resolve_config_value(cfg.get("scratch_path", ""), cfg.data)
+    if scratch_dir is None:
+        scratch_dir = os.path.join(scratch_root, "files")
+    os.makedirs(scratch_dir, exist_ok=True)
+
+    levels = source.levels()
+    if target is None:
+        target_lat, target_lon, _ = build_target_grid(domain_cfg, cfg)
+    else:
+        target_lat, target_lon = target
+
+    start = datetime.datetime.now()
+    log(f"************ Single-file extract ({domain_name} {date}, {source.name}) ************")
+
+    with dask.config.set(**{"array.slicing.split_large_chunks": True}), \
+            xr.set_options(keep_attrs=True):
+        t0 = datetime.datetime.now()
+        files = source.list_files(date)   # region=None (non-tiled)
+        cube = load_files(files, source.load_vars(), scratch_root + os.sep)
+        log(f"loaded {len(files)} file(s) in {(datetime.datetime.now() - t0).total_seconds():.1f}s")
+
+        target_cube = latlon_target_cube(target_lat, target_lon)
+
+        # provenance of the native grid (rotated-pole params), from a mass cube
+        first_name, first_lvl = source.mass_vars[0]
+        pole_attrs = rotated_pole_attrs(_pick(cube, first_name, first_lvl))
+
+        def _regrid_da(c, name):
+            da = _dataarray_from_iris_safely(regrid_to_latlon(c, target_cube)).rename(name)
+            drop = [x for x in ("level_height", "sigma", "level_height_0", "sigma_0")
+                    if x in da.coords]
+            return da.drop_vars(drop) if drop else da
+
+        def _sub(c, want_levels):
+            return c.extract(iris.Constraint(model_level_number=levels)) if want_levels else c
+
+        # --- Instantaneous mass fields: subsample levels, regrid ---
+        inst_arrays = []
+        mass_native = None   # a native (rotated) mass cube at subsampled levels
+        for name, want_levels in source.mass_vars:
+            c = _sub(_pick(cube, name, want_levels), want_levels)
+            if want_levels and mass_native is None:
+                mass_native = c
+            inst_arrays.append(_regrid_da(c, name))
+
+        # --- Winds: co-locate on the native mass grid, rotate to true north, regrid ---
+        if len(source.wind_vars) >= 2:
+            uname = source.wind_vars[0][0]
+            vname = source.wind_vars[1][0]
+            u = _sub(_pick(cube, uname, True), True)
+            v = _sub(_pick(cube, vname, True), True)
+            u_t, v_t = rotate_winds_true_north(u, v, mass_native)
+            inst_arrays.append(_regrid_da(u_t, uname))
+            inst_arrays.append(_regrid_da(v_t, vname))
+
+        # --- Averaged mass fields (e.g. sensible heat): restamp to interval end, regrid ---
+        #     (averaged_staggered_vars are deferred for rotated sources — need
+        #      vector rotation; see MetSource.deferred_vars.)
+        avg_arrays = []
+        for name in source.averaged_mass_vars:
+            c = _restamp_to_interval_end(_pick(cube, name, False))
+            avg_arrays.append(_regrid_da(c, name))
+        del cube
+
+        # --- Load into memory ---
+        t0 = datetime.datetime.now()
+        inst = xr.merge(inst_arrays, compat="override")
+        inst.load()
+        avg_arrays = [da.load() for da in avg_arrays]
+        log(f"regridded + loaded in {(datetime.datetime.now() - t0).total_seconds():.1f}s")
+
+        # --- Build valid-time axis, merge averaged fields on valid time ---
+        inst = _build_time_axis(inst, keep_provenance=True)
+        _check_unique_time(inst, "single", date)
+        if avg_arrays:
+            avg_das = []
+            for da in avg_arrays:
+                da = _build_time_axis(da, keep_provenance=False)
+                _check_unique_time(da, "single", date)
+                da.attrs["averaging"] = _AVERAGED_NOTE
+                avg_das.append(da)
+            all_variables = xr.merge([inst, *avg_das], join="inner", compat="override")
+        else:
+            all_variables = inst
+        del inst
+
+        all_variables.attrs.update(pole_attrs)
+        result = all_variables.sortby("time")
+        log(f"single-file extracted; dims {dict(result.sizes)}")
+
+        if not save:
+            log(f"---- {domain_name} {date} done in "
+                f"{(datetime.datetime.now() - start).total_seconds():.1f}s (not saved) ----")
+            return result
+
+        result = result.chunk(
+            {"model_level_number": -1, "time": 24, "latitude": 200, "longitude": 200}
+        )
+        filename = os.path.join(scratch_dir, f"{domain_name}_Met_{date}.nc")
+        result.to_netcdf(filename)
+        log(f"---- {domain_name} {date} saved to {filename} in "
+            f"{(datetime.datetime.now() - start).total_seconds():.1f}s ----")
 
     return filename

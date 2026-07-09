@@ -13,6 +13,7 @@ Example usage:
 """
 
 import argparse
+import calendar
 import shutil
 import sys
 from collections import Counter
@@ -27,7 +28,7 @@ from .config import Config, load_config, resolve_config_value
 from .iris_io import get_Mk, load_iris, remove_coord_callback
 from .regions import get_saved_region_bounds
 from .grid import extract_native_grid, save_native_grid, build_target_grid
-from .extract import extract_region
+from .extract import extract_region, extract_single
 from .join import join_month, cleanup_region_intermediates
 from .sources import get_source
 from .zarr_io import append_month_to_year_store, finalize_attrs
@@ -97,9 +98,11 @@ def cmd_make_native_grid(args):
     else:
         mks = list(range(6, 12))
 
-    met_archive_dir = cfg.get('met_archive_directory')
+    # Native grids are a Global-UM concept; take the archive path from that source.
+    met_archive_dir = get_source("UM_Global", cfg).archive_directory
     if not met_archive_dir:
-        print(f"ERROR: met_archive_directory not configured")
+        print("ERROR: UM_Global archive not configured "
+              "(set data_types.UM_Global.archive_directory)")
         sys.exit(1)
 
     # All 14 world regions
@@ -410,6 +413,92 @@ def _read_present_months(store_path, year):
         return set()
 
 
+def _expand_days(periods):
+    """Expand (year, month, day|None) periods into a list of (year, 'YYYYMMDD')."""
+    out = []
+    for year, month, day in periods:
+        if day is not None:
+            out.append((year, f"{year}{month:02d}{day:02d}"))
+        else:
+            for dd in range(1, calendar.monthrange(year, month)[1] + 1):
+                out.append((year, f"{year}{month:02d}{dd:02d}"))
+    return out
+
+
+def _read_present_days(store_path, year):
+    """Return the set of 'YYYYMMDD' day keys already present in a store."""
+    try:
+        with xr.open_zarr(str(store_path), consolidated=True) as ds:
+            times = np.asarray(ds.time.values).astype("datetime64[s]")
+        return {str(t)[:10].replace("-", "") for t in times if str(t)[:4] == str(year)}
+    except Exception as exc:
+        print(f"  WARNING: could not read existing store {store_path}: {exc}")
+        return set()
+
+
+def _run_non_tiled(cfg, domain_key, domain_cfg, domain_name, grid_mode,
+                   zarr_format, periods, zarr_dir, args, source):
+    """
+    Run the extract → append path for a non-tiled single-file source (e.g. NZCSM).
+
+    There is no join: each day is extracted whole-domain (regridded onto the
+    target grid) and appended to the yearly store, one day-batch at a time so the
+    big single-file timesteps never all sit in memory.
+    """
+    target_lat, target_lon, _ = build_target_grid(domain_cfg, cfg)
+    target = (target_lat, target_lon)
+    print(f"    non-tiled {source.name}: target grid {len(target_lat)} lat x "
+          f"{len(target_lon)} lon; batch = 1 day")
+
+    day_items = _expand_days(periods)
+    years = {}
+    for year, day_key in day_items:
+        years.setdefault(year, []).append(day_key)
+
+    scratch_root = resolve_config_value(cfg.get("scratch_path", ""), cfg.data)
+    scratch_dir = str(Path(scratch_root) / "files")
+
+    for year in sorted(years):
+        day_keys = sorted(years[year])
+        store_path = Path(zarr_dir) / domain_name / f"{domain_name}_Met_{year}.zarr"
+        print(f"\n=== {year} → {store_path} ({len(day_keys)} day(s)) ===")
+
+        store_exists = store_path.exists()
+        fresh = args.overwrite or not store_exists
+        if store_exists and args.overwrite and not args.dry_run:
+            print("    --overwrite: removing existing store")
+            shutil.rmtree(store_path)
+
+        to_do = day_keys
+        if store_exists and not args.overwrite:
+            present = _read_present_days(store_path, year)
+            if present:
+                last = max(present)
+                to_do = [d for d in day_keys if d not in present and d > last]
+                if present:
+                    print(f"    already present: {len(present)} day(s); to do: {len(to_do)}")
+
+        if not to_do:
+            print("    nothing to do.")
+            continue
+
+        if args.dry_run:
+            print(f"    [DRY RUN] would extract+append {len(to_do)} day(s) to {store_path}")
+            continue
+
+        for i, day_key in enumerate(to_do):
+            print(f"\n  --- {domain_name} {day_key} ({source.name}) ---")
+            day_ds = extract_single(domain_key, day_key, cfg, target=target, source=source)
+            first = fresh and i == 0
+            append_month_to_year_store(day_ds, store_path, zarr_format=zarr_format, first=first)
+            print(f"  appended {day_key} (first={first})")
+
+        finalize_attrs(store_path, extra_attrs={"grid_mode": grid_mode, "data_type": source.name})
+        print(f"    finalized store attributes for {year}")
+
+    print("\nDone.")
+
+
 def _run_single_day(cfg, domain_key, domain_cfg, domain_name, grid_mode,
                     zarr_format, ymd, zarr_dir, args, source):
     """
@@ -496,6 +585,13 @@ def cmd_run(args):
 
     print(f"Domain: {domain_name} ({domain_key})  |  data type: {source.name}  |  "
           f"grid mode: {grid_mode}  |  zarr v{zarr_format}")
+
+    # Non-tiled sources (e.g. NZCSM): single file per timestep, no join; extract
+    # and append a day at a time.
+    if not source.tiled:
+        _run_non_tiled(cfg, domain_key, domain_cfg, domain_name, grid_mode,
+                       zarr_format, periods, zarr_dir, args, source)
+        return
 
     # Single-day smoke test: write a separate debug store, no resume/append.
     if len(periods) == 1 and periods[0][2] is not None:
@@ -648,6 +744,14 @@ def cmd_extract(args):
     day = int(date_str[6:8]) if len(date_str) == 8 else None
 
     source = get_source(domain_cfg.get("data_type", "UM_Global"), cfg)
+
+    # Non-tiled sources (e.g. NZCSM): one file over the whole domain, no regions.
+    if not source.tiled:
+        print(f"Extracting {domain_cfg['domain_name']} {date_str} "
+              f"({source.name}, non-tiled single file)")
+        path = extract_single(domain_key, date_str, cfg, source=source, save=True)
+        print(f"  → {path}")
+        return
 
     if args.region is not None:
         regions = [args.region]
