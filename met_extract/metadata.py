@@ -67,7 +67,8 @@ def _clean(mapping):
     return out
 
 
-def apply_cf_metadata(ds, cfg, *, mk, grid_mode, domain_name, year, use_interp=True):
+def apply_cf_metadata(ds, cfg, *, mk, grid_mode, domain_name, year, use_interp=True,
+                      source_name=None):
     """
     Stamp CF coordinate and global attributes onto a monthly/period dataset.
 
@@ -115,14 +116,16 @@ def apply_cf_metadata(ds, cfg, *, mk, grid_mode, domain_name, year, use_interp=T
 
     conventions = md.get("conventions") or CONVENTIONS_DEFAULT
     title = md.get("title") or f"UM meteorology, {domain_name} {year}"
-    source = md.get("source") or (
-        f"Met Office Unified Model (UM) Mk{mk}, extracted from the NAME global met archive"
-    )
+    if mk is not None:
+        source = md.get("source") or (
+            f"Met Office Unified Model (UM) Mk{mk}, extracted from the NAME global met archive"
+        )
+    else:
+        source = md.get("source") or (f"{source_name} met archive" if source_name else "met archive")
 
     auto_comment = (
-        "x_wind/y_wind interpolated from the UM staggered (Arakawa C) grid onto the "
-        "mass/pressure grid; 1-in-3 model levels retained (level 1 plus every 3rd); "
-        f"grid_mode={grid_mode}"
+        "winds moved onto the mass/pressure grid; 1-in-3 model levels retained "
+        f"(level 1 plus every 3rd); grid_mode={grid_mode}"
     )
     if not use_interp:
         auto_comment += "; fields kept on the native UM grid (no spatial interpolation)"
@@ -130,9 +133,9 @@ def apply_cf_metadata(ds, cfg, *, mk, grid_mode, domain_name, year, use_interp=T
     comment = f"{auto_comment}. {user_comment}" if user_comment else auto_comment
 
     now = datetime.datetime.now().isoformat(timespec="seconds")
-    history = f"{now}: extracted and joined by met_extract"
+    history = f"{now}: extracted by met_extract"
 
-    ds.attrs.update(_clean({
+    attrs = {
         "Conventions": conventions,
         "title": title,
         "institution": md.get("institution", ""),
@@ -142,7 +145,52 @@ def apply_cf_metadata(ds, cfg, *, mk, grid_mode, domain_name, year, use_interp=T
         "comment": comment,
         "author": cfg.get("met_extract_author", ""),
         "grid_mode": grid_mode,
-        "mk_version": int(mk),
-    }))
+    }
+    if mk is not None:
+        attrs["mk_version"] = int(mk)
+    if source_name:
+        attrs["data_type"] = source_name
+    ds.attrs.update(_clean(attrs))
 
+    return ds
+
+
+def to_zarr_schema(ds):
+    """
+    Rename coordinates to the zarr-ready schema and drop hybrid-height helpers.
+
+    ``latitude``/``longitude``/``model_level_number`` → ``lat``/``lon``/``levels``;
+    ``level_height``/``sigma`` (and their ``_0`` merge-suffixed variants) are
+    dropped. Shared by the tiled (join) and non-tiled (single-file) paths so both
+    produce identical output shapes.
+    """
+    drop = [v for v in ("level_height", "sigma", "level_height_0", "sigma_0")
+            if v in ds.variables]
+    if drop:
+        ds = ds.drop_vars(drop, errors="ignore")
+
+    rename = {}
+    if "latitude" in ds.dims:
+        rename["latitude"] = "lat"
+    if "longitude" in ds.dims:
+        rename["longitude"] = "lon"
+    if "model_level_number" in ds.dims:
+        rename["model_level_number"] = "levels"
+    if rename:
+        ds = ds.rename(rename)
+
+    for dim in ("lat", "lon"):
+        if dim in ds.dims and ds.get_index(dim).has_duplicates:
+            ds = ds.drop_duplicates(dim)
+    return ds
+
+
+def add_delta_attrs(ds):
+    """Record the mean grid spacing (degrees) as ``delta_lat``/``delta_lon``."""
+    import numpy as np
+
+    if "lat" in ds and ds["lat"].size > 1:
+        ds.attrs["delta_lat"] = float(np.abs(np.diff(np.asarray(ds["lat"].values))).mean())
+    if "lon" in ds and ds["lon"].size > 1:
+        ds.attrs["delta_lon"] = float(np.abs(np.diff(np.asarray(ds["lon"].values))).mean())
     return ds

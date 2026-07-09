@@ -281,6 +281,7 @@ def join_month(
         met = apply_cf_metadata(
             met, cfg, mk=mk, grid_mode=grid_mode,
             domain_name=domain_name, year=year, use_interp=use_interp,
+            source_name=source.name,
         )
 
         log(f"Monthly dataset ready: {dict(met.sizes)} "

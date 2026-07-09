@@ -23,6 +23,7 @@ from .config import Config, resolve_config_value
 from .iris_io import load_files, delete_iris
 from .grid import build_target_grid
 from .sources import get_source
+from .metadata import to_zarr_schema, add_delta_attrs, apply_cf_metadata
 from .rotated import (
     latlon_target_cube,
     regrid_to_latlon,
@@ -558,7 +559,20 @@ def extract_single(
             all_variables = inst
         del inst
 
+        # Finalise to the same zarr-ready schema + CF/ARCO metadata as the tiled
+        # join path (rename lat/lon/levels, delta attrs, CF attrs), then add the
+        # rotated-pole provenance note.
+        all_variables = to_zarr_schema(all_variables)
+        all_variables = add_delta_attrs(all_variables)
+        grid_mode = domain_cfg.get("grid", {}).get("mode", "regular")
+        year = int(str(date)[:4])
+        month = int(str(date)[4:6]) if len(str(date)) >= 6 else 1
+        all_variables = apply_cf_metadata(
+            all_variables, cfg, mk=source.get_mk(year, month), grid_mode=grid_mode,
+            domain_name=domain_name, year=year, use_interp=True, source_name=source.name,
+        )
         all_variables.attrs.update(pole_attrs)
+
         result = all_variables.sortby("time")
         log(f"single-file extracted; dims {dict(result.sizes)}")
 
@@ -568,7 +582,7 @@ def extract_single(
             return result
 
         result = result.chunk(
-            {"model_level_number": -1, "time": 24, "latitude": 200, "longitude": 200}
+            {"levels": -1, "time": 24, "lat": 200, "lon": 200}
         )
         filename = os.path.join(scratch_dir, f"{domain_name}_Met_{date}.nc")
         result.to_netcdf(filename)
