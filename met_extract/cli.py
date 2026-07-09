@@ -29,6 +29,7 @@ from .regions import get_saved_region_bounds
 from .grid import extract_native_grid, save_native_grid, build_target_grid
 from .extract import extract_region
 from .join import join_month, cleanup_region_intermediates
+from .sources import get_source
 from .zarr_io import append_month_to_year_store, finalize_attrs
 
 
@@ -410,20 +411,20 @@ def _read_present_months(store_path, year):
 
 
 def _run_single_day(cfg, domain_key, domain_cfg, domain_name, grid_mode,
-                    zarr_format, ymd, zarr_dir, args):
+                    zarr_format, ymd, zarr_dir, args, source):
     """
     Run the full extract → join → write path for a single day.
 
     Writes a standalone ``{DOMAIN}_Met_{YYYYMMDD}.zarr`` debug store (always a
     fresh ``mode='w'`` write) so a smoke test never touches the real yearly
-    stores. Loads only that day's ~8 3-hourly files per region.
+    stores. Loads only that day's files per region.
     """
     year, month, day = ymd
     tag = f"{year}{month:02d}{day:02d}"
     store_path = Path(zarr_dir) / domain_name / f"{domain_name}_Met_{tag}.zarr"
     print(f"\n=== single-day smoke test {tag} → {store_path} ===")
 
-    mk = get_Mk(year, month)
+    mk = source.get_mk(year, month)
     if grid_mode == "native":
         target_lat, target_lon, _ = build_target_grid(domain_cfg, cfg, mk=mk)
         use_interp = False
@@ -431,7 +432,8 @@ def _run_single_day(cfg, domain_key, domain_cfg, domain_name, grid_mode,
         target_lat, target_lon, _ = build_target_grid(domain_cfg, cfg)
         use_interp = True
     target = (target_lat, target_lon)
-    print(f"    Mk{mk}, {'native passthrough' if not use_interp else 'interp'}, "
+    mk_label = f"Mk{mk}" if mk is not None else source.name
+    print(f"    {mk_label}, {'native passthrough' if not use_interp else 'interp'}, "
           f"target grid {len(target_lat)} lat x {len(target_lon)} lon")
 
     if args.dry_run:
@@ -452,6 +454,7 @@ def _run_single_day(cfg, domain_key, domain_cfg, domain_name, grid_mode,
     day_ds = join_month(
         domain_key, year, month, cfg,
         target=target, use_interp=use_interp, scratch_dir=scratch_dir, day=day,
+        source=source,
     )
     append_month_to_year_store(day_ds, store_path, zarr_format=zarr_format, first=True)
     print(f"    wrote {tag} to {store_path}")
@@ -482,6 +485,8 @@ def cmd_run(args):
 
     zarr_format = args.zarr_format if args.zarr_format is not None else cfg.get("zarr_format", 2)
 
+    source = get_source(domain_cfg.get("data_type", "UM_Global"), cfg)
+
     periods = _parse_date_arg(args.date)
 
     zarr_dir = resolve_config_value(cfg.get("zarr_save_directory", ""), cfg.data)
@@ -489,12 +494,13 @@ def cmd_run(args):
         print("ERROR: zarr_save_directory not configured")
         sys.exit(1)
 
-    print(f"Domain: {domain_name} ({domain_key})  |  grid mode: {grid_mode}  |  zarr v{zarr_format}")
+    print(f"Domain: {domain_name} ({domain_key})  |  data type: {source.name}  |  "
+          f"grid mode: {grid_mode}  |  zarr v{zarr_format}")
 
     # Single-day smoke test: write a separate debug store, no resume/append.
     if len(periods) == 1 and periods[0][2] is not None:
         _run_single_day(cfg, domain_key, domain_cfg, domain_name, grid_mode,
-                        zarr_format, periods[0], zarr_dir, args)
+                        zarr_format, periods[0], zarr_dir, args, source)
         return
 
     # Group requested months by year (one yearly store each).
@@ -513,7 +519,7 @@ def cmd_run(args):
         # months on that Mk are passed through, off-Mk months are interpolated.
         canonical_mk = None
         if grid_mode == "native":
-            mks = [get_Mk(year, m) for m in months]
+            mks = [source.get_mk(year, m) for m in months]
             canonical_mk = Counter(mks).most_common(1)[0][0]
             target_lat, target_lon, _ = build_target_grid(domain_cfg, cfg, mk=canonical_mk)
             print(f"    native canonical Mk: {canonical_mk} "
@@ -565,14 +571,16 @@ def cmd_run(args):
         scratch_dir = str(Path(scratch_root) / "files")
 
         for i, month in enumerate(to_do):
-            month_mk = get_Mk(year, month)
+            month_mk = source.get_mk(year, month)
             use_interp = (grid_mode != "native") or (month_mk != canonical_mk)
 
-            print(f"\n  --- {domain_name} {year}-{month:02d} (Mk{month_mk}, "
+            mk_label = f"Mk{month_mk}" if month_mk is not None else source.name
+            print(f"\n  --- {domain_name} {year}-{month:02d} ({mk_label}, "
                   f"{'interp' if use_interp else 'native'}) ---")
             month_ds = join_month(
                 domain_key, year, month, cfg,
                 target=target, use_interp=use_interp, scratch_dir=scratch_dir,
+                source=source,
             )
 
             first = fresh and i == 0
@@ -639,25 +647,28 @@ def cmd_extract(args):
     month = int(date_str[4:6])
     day = int(date_str[6:8]) if len(date_str) == 8 else None
 
+    source = get_source(domain_cfg.get("data_type", "UM_Global"), cfg)
+
     if args.region is not None:
         regions = [args.region]
     else:
         regions = domain_cfg["world_regions_codes"]
 
     # Build the target grid once for this period's Mk.
-    mk = get_Mk(year, month)
+    mk = source.get_mk(year, month)
     target_lat, target_lon, use_interp = build_target_grid(domain_cfg, cfg, mk=mk)
     target = (target_lat, target_lon)
 
     day_str = f"-{day:02d}" if day is not None else ""
     scope = "single day" if day is not None else "whole month"
+    mk_label = f"Mk{mk}" if mk is not None else source.name
     print(f"Extracting {domain_cfg['domain_name']} {year}-{month:02d}{day_str} "
-          f"(Mk{mk}, {scope}, regions {regions})")
+          f"({source.name}, {mk_label}, {scope}, regions {regions})")
 
     for region_id in regions:
         path = extract_region(
             domain_key, year, month, region_id, cfg,
-            target=target, use_interp=use_interp, day=day,
+            target=target, use_interp=use_interp, day=day, source=source,
         )
         print(f"  region {region_id} → {path}")
 

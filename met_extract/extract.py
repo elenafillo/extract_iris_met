@@ -19,9 +19,9 @@ import xarray as xr
 import dask
 
 from .config import Config, resolve_config_value
-from .iris_io import get_Mk, load_iris, delete_iris
-from .regions import get_saved_region_bounds
+from .iris_io import load_files, delete_iris
 from .grid import build_target_grid
+from .sources import get_source
 
 
 # Load only one in every three model levels (plus the surface) to reduce memory.
@@ -36,6 +36,9 @@ VARS = [
     "air_pressure_at_sea_level",
     "air_temperature",
     "atmosphere_boundary_layer_thickness",
+    "atmosphere_downward_eastward_stress",
+    "atmosphere_downward_northward_stress",
+    "specific_humidity",
     "surface_air_pressure",
     "surface_upward_sensible_heat_flux",
     "upward_air_velocity",
@@ -43,21 +46,40 @@ VARS = [
     "y_wind",
 ]
 
-# Variables kept and placed on the mass grid, selected by (name, want_levels).
-# want_levels disambiguates names that resolve to both a 3D and a surface cube
-# (air_temperature → keep the 3D field, drop the 1.5 m one). This intentionally
-# omits surface_upward_sensible_heat_flux, matching the original script.
+# --- Instantaneous fields (snapshot at the valid time) ---
+# Already on the mass grid, selected by (name, want_levels). want_levels
+# disambiguates names that resolve to both a 3D and a surface cube
+# (air_temperature → keep the 3D field, drop the 1.5 m one).
 MASS_VARS = [
     ("air_pressure", True),
     ("air_pressure_at_sea_level", False),
     ("air_temperature", True),
     ("atmosphere_boundary_layer_thickness", False),
+    ("specific_humidity", True),
     ("surface_air_pressure", False),
     ("upward_air_velocity", True),
 ]
 
-# Winds live on the staggered C-grid and are interpolated onto the mass grid.
+# Staggered 3D winds on the C-grid: subsample levels, then interpolate onto the
+# mass grid.
 WIND_VARS = [("x_wind", True), ("y_wind", True)]
+
+# --- Time-averaged fields (3-hour means over the forecast interval) ---
+# In the archive these are stamped at the interval MIDPOINT, carry time bounds,
+# and come from a *different* forecast run than the instantaneous fields — so they
+# live on a different (time, forecast_period, forecast_reference_time) grid and
+# cannot be merged directly. We re-stamp them to the interval END (which equals
+# the instantaneous valid time), drop their own forecast bookkeeping, and merge on
+# valid time. Their averaging convention is recorded in each variable's attrs.
+AVERAGED_MASS_VARS = ["surface_upward_sensible_heat_flux"]          # on the mass grid
+AVERAGED_STAGGERED_VARS = [                                         # staggered → interp
+    "atmosphere_downward_eastward_stress",   # offset in longitude (like x_wind)
+    "atmosphere_downward_northward_stress",  # offset in latitude  (like y_wind)
+]
+_AVERAGED_NOTE = (
+    "3-hour time-mean ending at the timestamp; re-stamped from the UM interval "
+    "midpoint to align with the instantaneous fields."
+)
 
 
 def _has_levels(cube):
@@ -86,6 +108,78 @@ def _pick(cubes, name, want_levels):
             f"found {len(matches)}. Loaded cubes (name, has_levels): {available}"
         )
     return matches[0]
+
+
+def _restamp_to_interval_end(cube):
+    """
+    Re-stamp a time-averaged cube's time onto its interval END, dropping bounds.
+
+    Averaged fields (fluxes/stresses) are stored at the interval midpoint with
+    time bounds [start, end]; the end equals the instantaneous fields' valid time.
+    Moving the point to the end lets them share one time axis. Modifies and
+    returns the cube.
+    """
+    tc = cube.coord("time")
+    if tc.has_bounds():
+        tc.points = tc.bounds.max(axis=-1)   # interval end (robust to bound order)
+        tc.bounds = None
+    if cube.coords("forecast_period") and cube.coord("forecast_period").has_bounds():
+        cube.coord("forecast_period").bounds = None
+    return cube
+
+
+def _build_time_axis(ds, keep_provenance):
+    """
+    Put a dataset/dataarray onto a real ``time`` dimension using its ``time`` aux
+    coordinate, collapsing whatever forecast dims that coord spans.
+
+    The instantaneous fields arrive on a (forecast_period, forecast_reference_time)
+    grid with ``time`` as an aux coord; the averaged fields may span only one of
+    those. Stacking exactly the dims ``time`` depends on handles both.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset or DataArray
+    keep_provenance : bool
+        If True, retain forecast_period/forecast_reference_time as time-indexed
+        coords (used for the instantaneous met); if False, drop them (the averaged
+        fields' forecast bookkeeping differs and is not meaningful once merged).
+    """
+    if "time" in ds.dims:
+        return ds
+
+    time_dims = list(ds["time"].dims)
+    if not time_dims:                     # scalar time → length-1 time dim
+        return ds.expand_dims("time")
+
+    ds = ds.stack(newtime=time_dims).swap_dims({"newtime": "time"})
+    if keep_provenance:
+        fp = ds["forecast_period"].values
+        frt = ds["forecast_reference_time"].values
+        ds = ds.drop_vars(["forecast_period", "forecast_reference_time", "newtime"])
+        ds = ds.assign_coords(
+            forecast_period=("time", fp),
+            forecast_reference_time=("time", frt),
+        )
+    else:
+        ds = ds.drop_vars(
+            ["forecast_period", "forecast_reference_time", "newtime"], errors="ignore"
+        )
+    return ds.sortby("time")
+
+
+def _check_unique_time(ds, region_id, date):
+    """Fail loudly if the built time axis has duplicate timestamps."""
+    tv = ds["time"].values
+    n_dup = int(len(tv) - len(np.unique(tv)))
+    if n_dup:
+        raise ValueError(
+            f"Region {region_id} {date}: {n_dup} duplicate timestamp(s) out of "
+            f"{len(tv)} after building the time axis. Some valid times arise from "
+            f"more than one (forecast_reference_time, forecast_period) combination, "
+            f"so those coordinates cannot be retained unambiguously. Inspect the "
+            f"source files for overlapping forecast periods / reference times."
+        )
 
 
 def log(msg):
@@ -143,6 +237,7 @@ def extract_region(
     save=True,
     cleanup_pp=True,
     day=None,
+    source=None,
 ):
     """
     Extract a single world region for a domain/year/month (or single day).
@@ -203,15 +298,18 @@ def extract_region(
     domain_cfg = cfg.get_domain(domain_key)
     domain_name = domain_cfg["domain_name"]
 
+    # Resolve the met data type ("source") — where the files live, the Mk
+    # calendar, level set, and region scheme all come from it.
+    if source is None:
+        source = get_source(domain_cfg.get("data_type", "UM_Global"), cfg)
+
     scratch_root = resolve_config_value(cfg.get("scratch_path", ""), cfg.data)
     if scratch_dir is None:
         scratch_dir = os.path.join(scratch_root, "files")
     os.makedirs(scratch_dir, exist_ok=True)
 
-    met_archive_directory = resolve_config_value(cfg.get("met_archive_directory", ""), cfg.data)
-
-    mk = get_Mk(year, month_int)
-    filepath = build_region_filepath(met_archive_directory, mk)
+    mk = source.get_mk(year, month_int)
+    levels = source.levels()
 
     # Resolve the target grid if not provided.
     if target is None:
@@ -224,49 +322,63 @@ def extract_region(
             grid_mode = domain_cfg.get("grid", {}).get("mode", "footprint")
             use_interp = grid_mode != "native"
 
-    region_bounds = get_saved_region_bounds()
+    region_bounds = source.region_bounds()
+    if region_bounds is None:
+        raise ValueError(
+            f"source {source.name!r} is not tiled (region_scheme='none'); "
+            f"per-region extract needs a region scheme."
+        )
 
+    mk_label = f"Mk{mk}" if mk is not None else source.name
     region_start = datetime.datetime.now()
-    log(f"************ Region {region_id} ({domain_name} {date}, Mk{mk}) ************")
+    log(f"************ Region {region_id} ({domain_name} {date}, {mk_label}) ************")
 
     with dask.config.set(**{"array.slicing.split_large_chunks": True}), \
             xr.set_options(keep_attrs=True):
         t0 = datetime.datetime.now()
-        cube = load_iris(filepath, mk, date, VARS, region_id, scratch_root + os.sep)
+        files = source.list_files(date, region=region_id, mk=mk)
+        cube = load_files(files, VARS, scratch_root + os.sep)
         log(f"region {region_id} loaded in {(datetime.datetime.now() - t0).total_seconds():.1f}s")
 
-        # Combine mass-grid variables; align the staggered winds onto that grid.
+        # --- Instantaneous group: mass-grid variables + staggered winds -------
         # Cubes are selected by name + level presence (see _pick) so a changed
         # archive raises rather than silently mis-selecting.
         most_variables = xr.combine_by_coords(
             [_dataarray_from_iris_safely(_pick(cube, name, lvl)) for name, lvl in MASS_VARS]
-        ).sel(model_level_number=LEVELS)
-        x_wind = xr.combine_by_coords(
-            [_dataarray_from_iris_safely(_pick(cube, "x_wind", True))], compat="override"
-        ).sel(model_level_number=LEVELS)
-        y_wind = xr.combine_by_coords(
-            [_dataarray_from_iris_safely(_pick(cube, "y_wind", True))], compat="override"
-        ).sel(model_level_number=LEVELS)
+        ).sel(model_level_number=levels)
+        mass_lat = most_variables.latitude.values
+        mass_lon = most_variables.longitude.values
+
+        winds = []
+        for name, _ in WIND_VARS:
+            da = xr.combine_by_coords(
+                [_dataarray_from_iris_safely(_pick(cube, name, True))], compat="override"
+            ).sel(model_level_number=levels)
+            winds.append(da.interp(latitude=mass_lat, longitude=mass_lon))
+
+        inst = xr.combine_by_coords([most_variables, *winds], compat="override")
+        del most_variables, winds
+
+        # --- Averaged group: fluxes/stresses, re-stamped to the interval end ---
+        # These are 3-hour means from a different forecast run, so they can't be
+        # merged with the instantaneous fields until re-stamped onto the shared
+        # valid-time axis (see AVERAGED_* and _restamp_to_interval_end).
+        avg_arrays = []
+        for name in AVERAGED_MASS_VARS:
+            c = _restamp_to_interval_end(_pick(cube, name, False))
+            avg_arrays.append(_dataarray_from_iris_safely(c))
+        for name in AVERAGED_STAGGERED_VARS:
+            c = _restamp_to_interval_end(_pick(cube, name, True))
+            da = _dataarray_from_iris_safely(c)
+            if "model_level_number" in da.coords:
+                da = da.drop_vars("model_level_number")
+            avg_arrays.append(da.interp(latitude=mass_lat, longitude=mass_lon))
         del cube
 
-        all_variables = xr.combine_by_coords(
-            [
-                most_variables,
-                x_wind.interp(
-                    latitude=most_variables.latitude.values,
-                    longitude=most_variables.longitude.values,
-                ),
-                y_wind.interp(
-                    latitude=most_variables.latitude.values,
-                    longitude=most_variables.longitude.values,
-                ),
-            ],
-            compat="override",
-        )
-        del most_variables, x_wind, y_wind
-
+        # --- Load into memory, then free the .pp scratch --------------------
         t0 = datetime.datetime.now()
-        all_variables.load()
+        inst.load()
+        avg_arrays = [da.load() for da in avg_arrays]
         log(f"loaded combined dataset into memory in {(datetime.datetime.now() - t0).total_seconds():.1f}s")
 
         if cleanup_pp:
@@ -277,51 +389,31 @@ def extract_region(
             except Exception as exc:  # non-fatal; just leaves scratch files behind
                 log(f"could not clean up .pp scratch for region {region_id}: {exc}")
 
+        # --- Build the valid-time axis per group, then merge on time ---------
+        # Instantaneous fields retain forecast_period/forecast_reference_time as
+        # provenance; each averaged field builds its own time axis (its forecast
+        # dims may differ) and drops that bookkeeping before merging on valid time.
+        inst = _build_time_axis(inst, keep_provenance=True)
+        _check_unique_time(inst, region_id, date)
+        log("time dimension constructed; forecast_period + forecast_reference_time retained")
+
+        if avg_arrays:
+            avg_das = []
+            for da in avg_arrays:
+                da = _build_time_axis(da, keep_provenance=False)
+                _check_unique_time(da, region_id, date)
+                da.attrs["averaging"] = _AVERAGED_NOTE
+                avg_das.append(da)
+            all_variables = xr.merge([inst, *avg_das], join="inner", compat="override")
+            log(f"merged {len(avg_das)} time-averaged field(s) onto the valid-time grid")
+        else:
+            all_variables = inst
+        del inst
+
         # Normalise longitude to [-180, 180].
         all_variables = all_variables.assign_coords(
             longitude=(((all_variables.longitude + 180) % 360) - 180)
         )
-
-        # Ensure a real 'time' dimension exists.
-        if "time" not in list(all_variables.sizes.keys()):
-            all_variables = all_variables.stack(newtime=["forecast_period", "forecast_reference_time"])
-            all_variables = all_variables.swap_dims({"newtime": "time"})
-            # Retain forecast_period / forecast_reference_time as time-indexed
-            # coords (provenance: which model run each step is from + its lead
-            # time). Capture their values against the new time axis, drop the
-            # helper stacking index, then re-attach as clean 1-D coords.
-            fp_vals = all_variables["forecast_period"].values
-            frt_vals = all_variables["forecast_reference_time"].values
-            all_variables = all_variables.drop_vars(
-                ["forecast_period", "forecast_reference_time", "newtime"]
-            )
-            all_variables = all_variables.assign_coords(
-                forecast_period=("time", fp_vals),
-                forecast_reference_time=("time", frt_vals),
-            )
-            log("time dimension constructed; forecast_period + forecast_reference_time retained")
-        else:
-            all_variables = all_variables.transpose(
-                "model_level_number", "latitude", "longitude", "time", ...
-            )
-
-        # Guard: the time axis is valid_time = forecast_reference_time +
-        # forecast_period. Retaining those two as provenance coords only makes
-        # sense if each valid time comes from a *unique* (reference_time, period)
-        # pair. If different pairs collide onto the same valid time we'd get
-        # duplicate timesteps with ambiguous provenance — fail loudly here rather
-        # than silently corrupting the series.
-        time_vals = all_variables["time"].values
-        n_dup = int(len(time_vals) - len(np.unique(time_vals)))
-        if n_dup:
-            raise ValueError(
-                f"Region {region_id} {date}: {n_dup} duplicate timestamp(s) out of "
-                f"{len(time_vals)} after building the time axis. Some valid times "
-                f"arise from more than one (forecast_reference_time, forecast_period) "
-                f"combination, so those coordinates cannot be retained unambiguously. "
-                f"Inspect the source files for overlapping forecast periods / "
-                f"reference times."
-            )
 
         # Apply the target grid.
         if use_interp:

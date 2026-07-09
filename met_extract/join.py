@@ -19,10 +19,9 @@ import xarray as xr
 import dask
 
 from .config import Config, resolve_config_value
-from .iris_io import get_Mk
 from .metadata import apply_cf_metadata
+from .sources import get_source
 from .regions import (
-    get_saved_region_bounds,
     build_domain_grid,
     drop_duplicate_coords,
 )
@@ -113,6 +112,7 @@ def join_month(
     extract_missing=True,
     reuse_existing=True,
     day=None,
+    source=None,
 ):
     """
     Extract and join all regions for a domain/year/month (or single day).
@@ -162,7 +162,9 @@ def join_month(
         scratch_dir = os.path.join(scratch_root, "files")
     os.makedirs(scratch_dir, exist_ok=True)
 
-    mk = get_Mk(year, month_int)
+    if source is None:
+        source = get_source(domain_cfg.get("data_type", "UM_Global"), cfg)
+    mk = source.get_mk(year, month_int)
 
     # Resolve the target grid once for the whole period.
     if target is None:
@@ -196,6 +198,7 @@ def join_month(
             use_interp=use_interp,
             scratch_dir=scratch_dir,
             day=day,
+            source=source,
         )
 
     # Confirm all region files now exist.

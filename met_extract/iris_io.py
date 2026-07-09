@@ -76,6 +76,62 @@ def get_Mk(year, month):
         raise ValueError(f"No Mk version found for year={year}, month={month_str}")
 
 
+_KNOWN_BAD_FILES = {"MO201402011500.UMG_Mk7_I_L59PT9.pp"}
+
+
+def load_files(files, vars, homefolder, callback=remove_coord_callback):
+    """
+    Load iris cubes from an explicit list of archive files (source-agnostic).
+
+    Compressed files (``.pp.gz``) are decompressed into ``homefolder`` first
+    (reusing any already present); uncompressed ``.pp`` files are read directly
+    from the archive. Known-bad files are skipped. This is the loader used by the
+    :class:`~met_extract.sources.MetSource`-driven pipeline, where file discovery
+    is done by ``source.list_files`` rather than reconstructed here.
+
+    Parameters
+    ----------
+    files : list of str
+        Archive file paths (from ``source.list_files``).
+    vars : list of str or iris constraint
+        Variables/constraints to load.
+    homefolder : str
+        Scratch directory for decompressed files (trailing separator ok).
+    callback : callable, optional
+        iris load callback (default strips the ``um_version`` attribute).
+
+    Returns
+    -------
+    iris.CubeList
+    """
+    if not files:
+        raise FileNotFoundError("load_files: no input files to load")
+
+    os.makedirs(homefolder, exist_ok=True)
+
+    to_load = []
+    n_decompressed = 0
+    for f in files:
+        base = os.path.basename(f)
+        if base in _KNOWN_BAD_FILES or base[:-3] in _KNOWN_BAD_FILES:
+            continue
+        if f.endswith(".gz"):
+            dest = os.path.join(homefolder, base[:-3])   # strip '.gz'
+            if not os.path.exists(dest):
+                with gzip.open(f, "rb") as f_in, open(dest, "wb") as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+                n_decompressed += 1
+            to_load.append(dest)
+        else:
+            to_load.append(f)   # uncompressed: read directly from the archive
+
+    print(f"[load_files] {len(to_load)} file(s) to load "
+          f"({n_decompressed} newly decompressed to scratch)")
+    loaded = iris.load(to_load, vars, callback=callback)
+    print(f"[load_files] loaded {len(loaded)} cube(s)")
+    return loaded
+
+
 def load_iris(filepath, Mk, date, vars, num, homefolder):
     """
     Load iris cubes from UM .pp or .pp.gz files.
