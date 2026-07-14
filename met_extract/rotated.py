@@ -74,14 +74,15 @@ def regrid_to_latlon(cube, target_cube, scheme=None):
     target_cube : iris.cube.Cube
         Target grid from :func:`latlon_target_cube`.
     scheme : iris regridding scheme, optional
-        Defaults to ``iris.analysis.Linear()``.
+        Defaults to ``iris.analysis.Linear(extrapolation_mode="mask")``: data points
+        outside native grid coverage are masked rather than extrapolated.
 
     Returns
     -------
     iris.cube.Cube
         Regridded cube on the target lat/lon grid.
     """
-    return cube.regrid(target_cube, scheme or Linear())
+    return cube.regrid(target_cube, scheme or Linear(extrapolation_mode="mask"))
 
 
 def rotate_winds_true_north(u_cube, v_cube, mass_cube, earth_radius=UM_EARTH_RADIUS):
@@ -132,6 +133,7 @@ def rotated_pole_attrs(cube):
         "native_grid_north_pole_longitude": float(cs.grid_north_pole_longitude),
         "regridding": (
             "regridded from the native rotated-pole grid to a regular lat/lon grid "
-            "(bilinear); wind/stress vectors rotated to true north beforehand"
+            "(bilinear, edge points outside native coverage masked); "
+            "wind/stress vectors rotated to true north beforehand"
         ),
     }
