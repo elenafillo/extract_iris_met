@@ -24,7 +24,7 @@ import numpy as np
 import xarray as xr
 import yaml
 
-from .config import Config, load_config, resolve_config_value
+from .config import Config, load_config, resolve_config_value, store_stem
 from .iris_io import get_Mk, load_iris, remove_coord_callback
 from .regions import get_saved_region_bounds
 from .grid import extract_native_grid, save_native_grid, build_target_grid
@@ -353,6 +353,15 @@ def _make_run_parser(subparsers):
         help='Keep per-region NetCDF intermediates in scratch (default: delete after append)'
     )
 
+    parser.add_argument(
+        '--suffix',
+        type=str,
+        default=None,
+        help='Optional tag appended to the domain name in the output store: '
+             '{domain}/{domain}_{suffix}_Met_{date}.zarr. Lets a variant run '
+             '(e.g. NA_coarse) sit beside the main NA store without overwriting it.'
+    )
+
     parser.set_defaults(func=cmd_run)
     return parser
 
@@ -437,7 +446,7 @@ def _read_present_days(store_path, year):
 
 
 def _run_non_tiled(cfg, domain_key, domain_cfg, domain_name, grid_mode,
-                   zarr_format, periods, zarr_dir, args, source):
+                   zarr_format, periods, zarr_dir, args, source, suffix=None):
     """
     Run the extract → append path for a non-tiled single-file source (e.g. NZCSM).
 
@@ -445,6 +454,7 @@ def _run_non_tiled(cfg, domain_key, domain_cfg, domain_name, grid_mode,
     target grid) and appended to the yearly store, one day-batch at a time so the
     big single-file timesteps never all sit in memory.
     """
+    stem = store_stem(domain_name, suffix)
     target_lat, target_lon, _ = build_target_grid(domain_cfg, cfg)
     target = (target_lat, target_lon)
     print(f"    non-tiled {source.name}: target grid {len(target_lat)} lat x "
@@ -460,7 +470,7 @@ def _run_non_tiled(cfg, domain_key, domain_cfg, domain_name, grid_mode,
 
     for year in sorted(years):
         day_keys = sorted(years[year])
-        store_path = Path(zarr_dir) / domain_name / f"{domain_name}_Met_{year}.zarr"
+        store_path = Path(zarr_dir) / domain_name / f"{stem}_Met_{year}.zarr"
         print(f"\n=== {year} → {store_path} ({len(day_keys)} day(s)) ===")
 
         store_exists = store_path.exists()
@@ -488,7 +498,8 @@ def _run_non_tiled(cfg, domain_key, domain_cfg, domain_name, grid_mode,
 
         for i, day_key in enumerate(to_do):
             print(f"\n  --- {domain_name} {day_key} ({source.name}) ---")
-            day_ds = extract_single(domain_key, day_key, cfg, target=target, source=source)
+            day_ds = extract_single(domain_key, day_key, cfg, target=target, source=source,
+                                    suffix=suffix)
             first = fresh and i == 0
             append_month_to_year_store(day_ds, store_path, zarr_format=zarr_format, first=first)
             print(f"  appended {day_key} (first={first})")
@@ -500,7 +511,7 @@ def _run_non_tiled(cfg, domain_key, domain_cfg, domain_name, grid_mode,
 
 
 def _run_single_day(cfg, domain_key, domain_cfg, domain_name, grid_mode,
-                    zarr_format, ymd, zarr_dir, args, source):
+                    zarr_format, ymd, zarr_dir, args, source, suffix=None):
     """
     Run the full extract → join → write path for a single day.
 
@@ -508,9 +519,10 @@ def _run_single_day(cfg, domain_key, domain_cfg, domain_name, grid_mode,
     fresh ``mode='w'`` write) so a smoke test never touches the real yearly
     stores. Loads only that day's files per region.
     """
+    stem = store_stem(domain_name, suffix)
     year, month, day = ymd
     tag = f"{year}{month:02d}{day:02d}"
-    store_path = Path(zarr_dir) / domain_name / f"{domain_name}_Met_{tag}.zarr"
+    store_path = Path(zarr_dir) / domain_name / f"{stem}_Met_{tag}.zarr"
     print(f"\n=== single-day smoke test {tag} → {store_path} ===")
 
     mk = source.get_mk(year, month)
@@ -543,13 +555,14 @@ def _run_single_day(cfg, domain_key, domain_cfg, domain_name, grid_mode,
     day_ds = join_month(
         domain_key, year, month, cfg,
         target=target, use_interp=use_interp, scratch_dir=scratch_dir, day=day,
-        source=source,
+        source=source, suffix=suffix,
     )
     append_month_to_year_store(day_ds, store_path, zarr_format=zarr_format, first=True)
     print(f"    wrote {tag} to {store_path}")
 
     if not args.keep_intermediates:
-        cleanup_region_intermediates(domain_name, year, month, scratch_dir, day=day)
+        cleanup_region_intermediates(domain_name, year, month, scratch_dir, day=day,
+                                     suffix=suffix)
 
     finalize_attrs(store_path, extra_attrs={"grid_mode": grid_mode, "single_day": tag})
     print("    finalized store attributes.")
@@ -562,6 +575,8 @@ def cmd_run(args):
     domain_key = cfg.resolve_domain_name(args.domain)
     domain_cfg = cfg.get_domain(domain_key)
     domain_name = domain_cfg["domain_name"]
+    suffix = getattr(args, "suffix", None)
+    stem = store_stem(domain_name, suffix)
 
     # Optional grid-mode override.
     if args.grid_mode:
@@ -583,20 +598,21 @@ def cmd_run(args):
         print("ERROR: zarr_save_directory not configured")
         sys.exit(1)
 
+    suffix_note = f"  |  suffix: {suffix}" if suffix else ""
     print(f"Domain: {domain_name} ({domain_key})  |  data type: {source.name}  |  "
-          f"grid mode: {grid_mode}  |  zarr v{zarr_format}")
+          f"grid mode: {grid_mode}  |  zarr v{zarr_format}{suffix_note}")
 
     # Non-tiled sources (e.g. NZCSM): single file per timestep, no join; extract
     # and append a day at a time.
     if not source.tiled:
         _run_non_tiled(cfg, domain_key, domain_cfg, domain_name, grid_mode,
-                       zarr_format, periods, zarr_dir, args, source)
+                       zarr_format, periods, zarr_dir, args, source, suffix=suffix)
         return
 
     # Single-day smoke test: write a separate debug store, no resume/append.
     if len(periods) == 1 and periods[0][2] is not None:
         _run_single_day(cfg, domain_key, domain_cfg, domain_name, grid_mode,
-                        zarr_format, periods[0], zarr_dir, args, source)
+                        zarr_format, periods[0], zarr_dir, args, source, suffix=suffix)
         return
 
     # Group requested months by year (one yearly store each).
@@ -606,7 +622,7 @@ def cmd_run(args):
 
     for year in sorted(years):
         months = sorted(years[year])
-        store_path = Path(zarr_dir) / domain_name / f"{domain_name}_Met_{year}.zarr"
+        store_path = Path(zarr_dir) / domain_name / f"{stem}_Met_{year}.zarr"
         print(f"\n=== {year} → {store_path} ===")
         print(f"    requested months: {[f'{m:02d}' for m in months]}")
 
@@ -676,7 +692,7 @@ def cmd_run(args):
             month_ds = join_month(
                 domain_key, year, month, cfg,
                 target=target, use_interp=use_interp, scratch_dir=scratch_dir,
-                source=source,
+                source=source, suffix=suffix,
             )
 
             first = fresh and i == 0
@@ -684,7 +700,8 @@ def cmd_run(args):
             print(f"  appended {year}-{month:02d} to store (first={first})")
 
             if not args.keep_intermediates:
-                cleanup_region_intermediates(domain_name, year, month, scratch_dir)
+                cleanup_region_intermediates(domain_name, year, month, scratch_dir,
+                                             suffix=suffix)
 
         finalize_attrs(
             store_path,
@@ -725,6 +742,15 @@ def _make_extract_parser(subparsers):
         help='Specific region to extract (if not specified, extracts all for domain)'
     )
 
+    parser.add_argument(
+        '--suffix',
+        type=str,
+        default=None,
+        help='Optional tag appended to the domain name in the intermediate '
+             'filenames ({domain}_{suffix}_Met_{date}[_{region}].nc), keeping a '
+             'variant extraction separate from the main one in scratch.'
+    )
+
     parser.set_defaults(func=cmd_extract)
     return parser
 
@@ -734,6 +760,7 @@ def cmd_extract(args):
     cfg = Config()
     domain_key = cfg.resolve_domain_name(args.domain)
     domain_cfg = cfg.get_domain(domain_key)
+    suffix = getattr(args, "suffix", None)
 
     date_str = str(args.date).strip()
     if not date_str.isdigit() or len(date_str) not in (6, 8):
@@ -749,7 +776,8 @@ def cmd_extract(args):
     if not source.tiled:
         print(f"Extracting {domain_cfg['domain_name']} {date_str} "
               f"({source.name}, non-tiled single file)")
-        path = extract_single(domain_key, date_str, cfg, source=source, save=True)
+        path = extract_single(domain_key, date_str, cfg, source=source, save=True,
+                              suffix=suffix)
         print(f"  → {path}")
         return
 
@@ -773,6 +801,7 @@ def cmd_extract(args):
         path = extract_region(
             domain_key, year, month, region_id, cfg,
             target=target, use_interp=use_interp, day=day, source=source,
+            suffix=suffix,
         )
         print(f"  region {region_id} → {path}")
 
