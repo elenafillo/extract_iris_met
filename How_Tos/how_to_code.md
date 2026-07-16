@@ -16,7 +16,7 @@ extract_iris_met/
 ├── met_extract/                # ← the package (all current logic)
 │   ├── __init__.py             # package metadata (version)
 │   ├── __main__.py             # entry point: `python -m met_extract`
-│   ├── cli.py                  # argparse CLI + run/extract/make-native-grid orchestration
+│   ├── cli.py                  # argparse CLI + run/extract/make-native-grid/extract-topog orchestration
 │   ├── config.py               # config loading, {user} templating, Config accessor
 │   ├── sources.py              # MetSource data-type descriptors + registry
 │   ├── iris_io.py              # reading .pp/.pp.gz with iris; Mk calendar
@@ -26,7 +26,8 @@ extract_iris_met/
 │   ├── extract.py              # per-region + single-file extraction
 │   ├── join.py                 # stitch regions → monthly domain dataset
 │   ├── metadata.py             # CF / provenance attributes
-│   └── zarr_io.py              # append to yearly zarr store + finalize attrs
+│   ├── zarr_io.py              # append to yearly zarr store + finalize attrs
+│   └── topog.py                # static ancillary (topography) extraction
 │
 ├── config.example.yaml         # committed config template
 ├── config.yaml                 # your personal config (git-ignored)
@@ -56,12 +57,12 @@ exploratory root notebooks (`check_joined_met.ipynb`, `exploring_met_data.ipynb`
 
 - **`__main__.py`** — makes `python -m met_extract …` work; just calls
   `cli.main()`.
-- **`cli.py`** — the command layer. Defines the `run`, `extract` and
-  `make-native-grid` subcommands (argparse), parses `--date` into
-  year/month/day periods, and orchestrates the workflow: resume logic (which
-  months are already in a store), the single-day debug path (`_run_single_day`),
-  and the non-tiled single-file path (`_run_non_tiled`). It is the only module
-  that stitches the others together.
+- **`cli.py`** — the command layer. Defines the `run`, `extract`,
+  `make-native-grid` and `extract-topog` subcommands (argparse), parses `--date`
+  into year/month/day periods, and orchestrates the workflow: resume logic
+  (which months are already in a store), the single-day debug path
+  (`_run_single_day`), and the non-tiled single-file path (`_run_non_tiled`).
+  It is the only module that stitches the others together.
 - **`config.py`** — `load_config()` reads `config.yaml` from the CWD and fills
   `user` from `$USER`; `resolve_config_value()` expands `{user}` templates; the
   `Config` class wraps the dict with `get()`, `get_domain()`, and
@@ -129,6 +130,15 @@ exploratory root notebooks (`check_joined_met.ipynb`, `exploring_met_data.ipynb`
   (`months_present`, `missing_months`, `year_complete`, `time_start/end`, …) and
   re-consolidates metadata.
 
+### Static ancillary fields
+
+- **`topog.py`** — `extract_topog(domain_key, cfg)` regrids a domain's static
+  topography (no date, no join, no zarr append — a single array per domain).
+  Reads `ancillary_types.<data_type>.native_topog_file` from config, reuses
+  `grid.build_target_grid` (the *same* target grid met extraction builds for
+  that domain) and `rotated.regrid_to_latlon`, then writes a plain NetCDF to
+  `{ancillary_save_directory}/{domain_name}/{domain_name}_topog.nc`.
+
 ---
 
 ## 3. The processing pipeline
@@ -183,7 +193,8 @@ Variations handled in `cli.py`:
 | Change **output encoding / chunking** | [`zarr_io.py`](../met_extract/zarr_io.py) (`_ZARR_CHUNKS`, `_build_encoding`) |
 | Change **CF / provenance attrs** | [`metadata.py`](../met_extract/metadata.py) + the `metadata:` config block |
 | Add a **CLI option / subcommand** | [`cli.py`](../met_extract/cli.py) |
-| Add a **domain** | `config.yaml → domains:` only (no code) — see [how_to_extract.md](how_to_extract.md#6-add-a-new-domain) |
+| Add a **domain** | `config.yaml → domains:` only (no code) — see [how_to_extract.md](how_to_extract.md#7-add-a-new-domain) |
+| Add an **ancillary field** (e.g. landcover) | [`topog.py`](../met_extract/topog.py) — follow the `extract_topog` pattern; set its source path under `config.yaml → ancillary_types:` |
 
 Open questions and planned work are tracked in [`usage.md`](../usage.md).
 </content>

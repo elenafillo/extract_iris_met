@@ -115,3 +115,13 @@ domains:
       lon_bounds: [160.5, 184.8]
       dlat: 0.02
       dlon: 0.02
+
+
+# Static ancillary topography field (extracted once per domain).
+# Regridded onto same domain as met extraction so outputs align.
+ancillary_types:
+  NZCSM:
+    native_topog_file: "../data/topog/TopogUMNZCSM.pp"
+
+# Directory where extracted per-domain topog NetCDFs are saved
+ancillary_save_directory: "data/"

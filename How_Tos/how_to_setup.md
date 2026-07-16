@@ -136,6 +136,21 @@ data_types:
 
 See [how_to_datatypes.md](how_to_datatypes.md) for what each type is.
 
+### Ancillary (static) field paths
+
+Only needed if you'll run `extract-topog` for a domain. Keyed by `data_type`
+name, same as `data_types:` above:
+
+```yaml
+ancillary_types:
+  NZCSM:
+    native_topog_file: "../data/topog/TopogUMNZCSM.pp"
+
+ancillary_save_directory: "data/"   # {ancillary_save_directory}/{domain_name}/{domain_name}_topog.nc
+```
+
+See [how_to_datatypes.md](how_to_datatypes.md#8-ancillary-fields-topography-landcover).
+
 ---
 
 ## 5. Generate native grids (one-off)
@@ -181,5 +196,7 @@ good. Move on to [how_to_extract.md](how_to_extract.md) for real runs.
 - [ ] `cp config.example.yaml config.yaml` and edit paths + `met_extract_author`
 - [ ] `python -m met_extract make-native-grid --sample-date 201601`
 - [ ] `python -m met_extract run --domain SA --date 20160115` (smoke test)
+- [ ] *(if the domain needs topography)* `ancillary_types:` entry, then
+      `python -m met_extract extract-topog --domain SA`
 </content>
 </invoke>

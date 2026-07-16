@@ -5,11 +5,13 @@ Provides subcommands for extracting meteorology data:
   - run: extract and join monthly data, append to yearly zarr store
   - extract: extract per-region intermediates only
   - make-native-grid: save native UM grids for reference
+  - extract-topog: regrid a domain's static topography onto its met target grid
 
 Example usage:
   python -m met_extract run --domain SA --date 2016
   python -m met_extract extract --domain SA --date 201601 --region 6
   python -m met_extract make-native-grid --mk 10
+  python -m met_extract extract-topog --domain NZ
 """
 
 import argparse
@@ -31,6 +33,7 @@ from .grid import extract_native_grid, save_native_grid, build_target_grid
 from .extract import extract_region, extract_single
 from .join import join_month, cleanup_region_intermediates
 from .sources import get_source
+from .topog import extract_topog
 from .zarr_io import append_month_to_year_store, finalize_attrs
 
 
@@ -297,6 +300,35 @@ def cmd_make_native_grid(args):
     print(f"\n{'='*60}")
     print("Done!")
     print(f"{'='*60}")
+
+
+def _make_extract_topog_parser(subparsers):
+    """Create the 'extract-topog' subcommand parser."""
+    parser = subparsers.add_parser(
+        'extract-topog',
+        help="Regrid a domain's static topography onto its met target grid"
+    )
+
+    parser.add_argument(
+        '--domain',
+        type=str,
+        required=True,
+        help='Domain key (e.g., NZ) or domain_name (e.g., NEWZEALAND)'
+    )
+
+    parser.set_defaults(func=cmd_extract_topog)
+    return parser
+
+
+def cmd_extract_topog(args):
+    """Regrid and save a domain's static topography (see met_extract.topog)."""
+    cfg = Config()
+    domain_key = cfg.resolve_domain_name(args.domain)
+    domain_name = cfg.get_domain(domain_key)["domain_name"]
+
+    print(f"Extracting topography for {domain_name} ({domain_key})")
+    out_path = extract_topog(domain_key, cfg)
+    print(f"  topog -> {out_path}")
 
 
 def _make_run_parser(subparsers):
@@ -804,6 +836,7 @@ def main(argv=None):
     _make_run_parser(subparsers)
     _make_extract_parser(subparsers)
     _make_native_grid_parser(subparsers)
+    _make_extract_topog_parser(subparsers)
 
     args = parser.parse_args(argv)
 
