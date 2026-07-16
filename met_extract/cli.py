@@ -468,6 +468,7 @@ def _run_non_tiled(cfg, domain_key, domain_cfg, domain_name, grid_mode,
     scratch_root = resolve_config_value(cfg.get("scratch_path", ""), cfg.data)
     scratch_dir = str(Path(scratch_root) / "files")
 
+    written_stores = []   # zarr stores finalized this run, printed at the end
     for year in sorted(years):
         day_keys = sorted(years[year])
         store_path = Path(zarr_dir) / domain_name / f"{stem}_Met_{year}.zarr"
@@ -506,8 +507,15 @@ def _run_non_tiled(cfg, domain_key, domain_cfg, domain_name, grid_mode,
 
         finalize_attrs(store_path, extra_attrs={"grid_mode": grid_mode, "data_type": source.name})
         print(f"    finalized store attributes for {year}")
+        written_stores.append(store_path)
 
     print("\nDone.")
+    if written_stores:
+        print("Saved to:")
+        for path in written_stores:
+            print(f"  {path}")
+    elif args.dry_run:
+        print("(dry run — nothing written)")
 
 
 def _run_single_day(cfg, domain_key, domain_cfg, domain_name, grid_mode,
@@ -567,6 +575,7 @@ def _run_single_day(cfg, domain_key, domain_cfg, domain_name, grid_mode,
     finalize_attrs(store_path, extra_attrs={"grid_mode": grid_mode, "single_day": tag})
     print("    finalized store attributes.")
     print("\nDone (single-day smoke test).")
+    print(f"Saved to:\n  {store_path}")
 
 
 def cmd_run(args):
@@ -620,6 +629,7 @@ def cmd_run(args):
     for year, month, _day in periods:
         years.setdefault(year, []).append(month)
 
+    written_stores = []   # zarr stores finalized this run, printed at the end
     for year in sorted(years):
         months = sorted(years[year])
         store_path = Path(zarr_dir) / domain_name / f"{stem}_Met_{year}.zarr"
@@ -671,6 +681,7 @@ def cmd_run(args):
             print("    nothing to do (all requested months present).")
             if not args.dry_run:
                 finalize_attrs(store_path, extra_attrs={"grid_mode": grid_mode})
+                written_stores.append(store_path)
             continue
 
         print(f"    months to process: {[f'{m:02d}' for m in to_do]}")
@@ -711,8 +722,15 @@ def cmd_run(args):
             },
         )
         print(f"    finalized store attributes for {year}")
+        written_stores.append(store_path)
 
     print("\nDone.")
+    if written_stores:
+        print("Saved to:")
+        for path in written_stores:
+            print(f"  {path}")
+    elif args.dry_run:
+        print("(dry run — nothing written)")
 
 
 def _make_extract_parser(subparsers):

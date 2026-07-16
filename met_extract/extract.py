@@ -313,7 +313,12 @@ def extract_region(
         # archive raises rather than silently mis-selecting.
         most_variables = xr.combine_by_coords(
             [_dataarray_from_iris_safely(_pick(cube, name, lvl)) for name, lvl in source.mass_vars]
-        ).sel(model_level_number=levels)
+        )
+        # Subsample model levels only if a leveled field is present — a mass_vars
+        # set of purely surface/2D fields (e.g. just BL thickness) has no
+        # model_level_number coordinate to select on.
+        if "model_level_number" in most_variables.coords:
+            most_variables = most_variables.sel(model_level_number=levels)
         mass_lat = most_variables.latitude.values
         mass_lon = most_variables.longitude.values
 
