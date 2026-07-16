@@ -7,7 +7,7 @@ hosted on JASMIN — into analysis-ready yearly [Zarr](https://zarr.dev/) stores
 joins them into your domain, and appends the result to a yearly store, with
 support for multiple data types (global UM, limited-area, convective-scale),
 three grid modes, and CF/provenance metadata. It can also extract static
-ancillary field (currently just NZCSM topography) and regrid to the same 
+ancillary fields (currently limited to NZCSM topography) and regrid to the same 
 target grid as the met data.
 
 ```bash
