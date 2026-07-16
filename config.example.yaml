@@ -139,7 +139,7 @@ domains:
     data_type: "NZCSM"
     grid:
       mode: regular
-      lat_bounds: [-49, -30]
-      lon_bounds: [160, 185]
+      lat_bounds: [-49.0, -30.2]
+      lon_bounds: [160.5, 184.8]
       dlat: 0.02
       dlon: 0.02
