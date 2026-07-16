@@ -486,12 +486,22 @@ def _run_non_tiled(cfg, domain_key, domain_cfg, domain_name, grid_mode,
             print(f"    [DRY RUN] would extract+append {len(to_do)} day(s) to {store_path}")
             continue
 
-        for i, day_key in enumerate(to_do):
+        wrote_any = False
+        for day_key in to_do:
             print(f"\n  --- {domain_name} {day_key} ({source.name}) ---")
-            day_ds = extract_single(domain_key, day_key, cfg, target=target, source=source)
-            first = fresh and i == 0
+            try:
+                day_ds = extract_single(domain_key, day_key, cfg, target=target, source=source)
+            except FileNotFoundError:
+                print(f"  skipping {day_key}: no archive files found")
+                continue
+            first = fresh and not wrote_any
             append_month_to_year_store(day_ds, store_path, zarr_format=zarr_format, first=first)
+            wrote_any = True
             print(f"  appended {day_key} (first={first})")
+            
+        if not wrote_any:
+            print(f"    no days had archive data for {year}; nothing written.")
+            continue
 
         finalize_attrs(store_path, extra_attrs={"grid_mode": grid_mode, "data_type": source.name})
         print(f"    finalized store attributes for {year}")
