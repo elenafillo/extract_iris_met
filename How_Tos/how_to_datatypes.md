@@ -273,7 +273,6 @@ extraction builds for that domain.
 | Field | Config key | Source | Status |
 | ----- | ---------- | ------ | ------ |
 | **topography** (`surface_altitude`) | `ancillary_types.<data_type>.native_topog_file` | native-grid `.pp` (rotated pole for NZCSM) | **working** (NZCSM) |
-| landcover | — | — | not yet implemented |
 
 Like `data_types:`, `ancillary_types:` is keyed by `data_type` name — the
 domain's own `data_type:` (or `UM_Global` if omitted) picks which entry
