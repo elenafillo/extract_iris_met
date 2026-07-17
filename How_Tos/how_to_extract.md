@@ -59,6 +59,7 @@ python -m met_extract run --domain SA --date 201601 --dry-run
 | `--grid-mode {footprint,regular,native}` | override the domain's config grid mode |
 | `--zarr-format {2,3}` | on-disk zarr version (default: `config.zarr_format`) |
 | `--keep-intermediates` | keep per-region NetCDFs in scratch (default: delete after append) |
+| `--suffix TAG` | tag the store as `{DOMAIN}_{TAG}_Met_...` so a variant sits beside the main store (see below) |
 
 ### The `--date` forms
 
@@ -81,6 +82,24 @@ For an existing yearly store (no `--overwrite`):
 Example — first pass does Jan–Jun, later you run the full year: Jan–Jun are
 skipped, Jul–Dec appended.
 
+### `--suffix` — variant stores side by side
+
+By default a domain's store is `{DOMAIN}/{DOMAIN}_Met_{date}.zarr`. Passing
+`--suffix TAG` tags the **filename** (not the folder) so a variant run lands next
+to the main store instead of resuming/overwriting it:
+
+```bash
+python -m met_extract run --domain NA --date 2014                       # NA/NA_Met_2014.zarr
+python -m met_extract run --domain NA --date 2014 --suffix coarse       # NA/NA_coarse_Met_2014.zarr
+python -m met_extract run --domain NA --date 2014 --grid-mode native --suffix native
+```
+
+Use it to keep a `--grid-mode` / config experiment separate from the production
+store. Each suffix has its **own** resume state, and its per-region scratch
+intermediates are tagged too (`{DOMAIN}_{TAG}_Met_..._{region}.nc`), so variants
+never share intermediates. A leading underscore on the tag is trimmed
+(`--suffix _coarse` == `--suffix coarse`).
+
 ---
 
 ## 3. `extract` — per-region intermediates only
@@ -99,6 +118,7 @@ python -m met_extract extract --domain SA --date 20160115 --region 6  # one regi
 | `--domain` *(required)* | domain key or `domain_name` |
 | `--date` *(required)* | `YYYYMM` (month) or `YYYYMMDD` (day) — **no** `YYYY` form here |
 | `--region` | a single world-region ID; omit to do all of the domain's regions |
+| `--suffix TAG` | tag the intermediate filenames `{DOMAIN}_{TAG}_Met_...` (same tag `run` uses) |
 
 These intermediates are transient (a `run` deletes them after the month appends,
 unless `--keep-intermediates`). They exist to bound peak memory, not as a product.

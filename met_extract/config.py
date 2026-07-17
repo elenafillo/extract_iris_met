@@ -40,6 +40,40 @@ def load_config():
     return config
 
 
+def store_stem(domain_name, suffix=None):
+    """
+    Build the output file stem for a domain, optionally tagged with a suffix.
+
+    With no suffix the stem is just ``domain_name`` (e.g. ``NA``); with a suffix
+    it is ``{domain_name}_{suffix}`` (e.g. ``NA_coarse``). This lets a variant
+    extraction (a different grid mode, config tweak, etc.) live side by side with
+    the main store under the same domain folder, e.g.::
+
+        {zarr_dir}/NA/NA_Met_2014.zarr
+        {zarr_dir}/NA/NA_coarse_Met_2014.zarr
+
+    Surrounding whitespace and underscores on the suffix are trimmed so
+    ``"_coarse"`` and ``"coarse"`` behave the same.
+
+    Parameters
+    ----------
+    domain_name : str
+        The domain's ``domain_name`` (e.g. ``NA``).
+    suffix : str, optional
+        Extra tag to append; if None or empty after trimming, the stem is just
+        ``domain_name``.
+
+    Returns
+    -------
+    str
+        The file stem to use in output/intermediate filenames.
+    """
+    if suffix is None:
+        return domain_name
+    suffix = str(suffix).strip().strip("_")
+    return f"{domain_name}_{suffix}" if suffix else domain_name
+
+
 def resolve_config_value(value, config):
     """
     Resolve string templates in individual config values.

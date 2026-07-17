@@ -19,7 +19,7 @@ import numpy as np
 import xarray as xr
 import dask
 
-from .config import Config, resolve_config_value
+from .config import Config, resolve_config_value, store_stem
 from .iris_io import load_files, delete_iris
 from .grid import build_target_grid
 from .sources import get_source
@@ -200,6 +200,7 @@ def extract_region(
     cleanup_pp=True,
     day=None,
     source=None,
+    suffix=None,
 ):
     """
     Extract a single world region for a domain/year/month (or single day).
@@ -239,6 +240,10 @@ def extract_region(
         If given, restrict the load to a single day (that day's ~8 3-hourly
         files) instead of the whole month — a cheap pipeline smoke test. The
         intermediate filename then carries the full YYYYMMDD tag.
+    suffix : str, optional
+        Extra tag appended to the domain name in the intermediate filename
+        (``{domain_name}_{suffix}_Met_...``), so variant extractions don't share
+        scratch intermediates. See :func:`met_extract.config.store_stem`.
 
     Returns
     -------
@@ -259,6 +264,7 @@ def extract_region(
 
     domain_cfg = cfg.get_domain(domain_key)
     domain_name = domain_cfg["domain_name"]
+    stem = store_stem(domain_name, suffix)
 
     # Resolve the met data type ("source") — where the files live, the Mk
     # calendar, level set, and region scheme all come from it.
@@ -307,7 +313,12 @@ def extract_region(
         # archive raises rather than silently mis-selecting.
         most_variables = xr.combine_by_coords(
             [_dataarray_from_iris_safely(_pick(cube, name, lvl)) for name, lvl in source.mass_vars]
-        ).sel(model_level_number=levels)
+        )
+        # Subsample model levels only if a leveled field is present — a mass_vars
+        # set of purely surface/2D fields (e.g. just BL thickness) has no
+        # model_level_number coordinate to select on.
+        if "model_level_number" in most_variables.coords:
+            most_variables = most_variables.sel(model_level_number=levels)
         mass_lat = most_variables.latitude.values
         mass_lon = most_variables.longitude.values
 
@@ -410,7 +421,7 @@ def extract_region(
             {"model_level_number": -1, "time": 50, "latitude": 50, "longitude": 50}
         )
 
-        filename = os.path.join(scratch_dir, f"{domain_name}_Met_{date}_{region_id}.nc")
+        filename = os.path.join(scratch_dir, f"{stem}_Met_{date}_{region_id}.nc")
         t0 = datetime.datetime.now()
         result.to_netcdf(filename)
         size_mb = os.stat(filename).st_size / (1024 * 1024)
@@ -431,6 +442,7 @@ def extract_single(
     scratch_dir=None,
     save=False,
     source=None,
+    suffix=None,
 ):
     """
     Extract a whole-domain, single-file (non-tiled) source for a time window.
@@ -460,6 +472,10 @@ def extract_single(
         return the in-memory dataset (the default for the batched run loop).
     source : met_extract.sources.MetSource, optional
         Resolved source; if None, resolved from the domain's ``data_type``.
+    suffix : str, optional
+        Extra tag appended to the domain name in the output filename
+        (``{domain_name}_{suffix}_Met_...``). See
+        :func:`met_extract.config.store_stem`.
 
     Returns
     -------
@@ -470,6 +486,7 @@ def extract_single(
 
     domain_cfg = cfg.get_domain(domain_key)
     domain_name = domain_cfg["domain_name"]
+    stem = store_stem(domain_name, suffix)
     if source is None:
         source = get_source(domain_cfg.get("data_type", "UM_Global"), cfg)
 
@@ -584,7 +601,7 @@ def extract_single(
         result = result.chunk(
             {"levels": -1, "time": 24, "lat": 200, "lon": 200}
         )
-        filename = os.path.join(scratch_dir, f"{domain_name}_Met_{date}.nc")
+        filename = os.path.join(scratch_dir, f"{stem}_Met_{date}.nc")
         result.to_netcdf(filename)
         log(f"---- {domain_name} {date} saved to {filename} in "
             f"{(datetime.datetime.now() - start).total_seconds():.1f}s ----")

@@ -162,6 +162,11 @@ class MetSource:
         Small for big single-file sources so memory stays bounded.
     level_stride : int
         Level subsampling: keep level 1 plus every `level_stride`-th level.
+        Ignored when `model_levels` is set.
+    model_levels : tuple of int, optional
+        Explicit model levels to load (1-based, ≤ `n_levels`). When set, these
+        exact levels are used and `level_stride` is ignored. None (default) →
+        stride-based subsampling.
     """
 
     name: str
@@ -178,6 +183,7 @@ class MetSource:
     crosses_dateline: bool = False
     append_batch: Optional[int] = None
     level_stride: int = 3
+    model_levels: Optional[tuple] = None
 
     # Variable groups (see the module-level defaults above). Override per source
     # where cube names differ. deferred_vars documents fields intentionally not
@@ -208,7 +214,14 @@ class MetSource:
         return _MK_CALENDARS[self.mk_calendar](year, month)
 
     def levels(self):
-        """Model levels to load: level 1 plus every `level_stride`-th, ≤ n_levels."""
+        """
+        Model levels to load.
+
+        If ``model_levels`` is set, those exact levels are used; otherwise level 1
+        plus every ``level_stride``-th level (≤ ``n_levels``).
+        """
+        if self.model_levels is not None:
+            return list(self.model_levels)
         return [1] + list(range(1, self.n_levels + 1))[self.level_stride - 1::self.level_stride]
 
     def region_bounds(self):
@@ -329,6 +342,81 @@ SOURCES = {
 }
 
 
+# Variable-group keys overridable from config. The two "paired" groups carry
+# (name, want_levels) entries; the two "name" groups carry bare cube names.
+_PAIRED_VAR_KEYS = ("mass_vars", "wind_vars")
+_NAME_VAR_KEYS = ("averaged_mass_vars", "averaged_staggered_vars")
+
+
+def _coerce_paired_vars(value, key):
+    """
+    Coerce a config list of ``[name, want_levels]`` into a tuple of
+    ``(str, bool)`` pairs (the in-code form for ``mass_vars`` / ``wind_vars``).
+
+    An empty list is allowed and drops the group entirely.
+    """
+    out = []
+    for i, entry in enumerate(value):
+        if isinstance(entry, str) or len(entry) != 2:
+            raise ValueError(
+                f"data_types override {key!r}: entry {i} must be a "
+                f"[cube_name, want_levels] pair, got {entry!r}"
+            )
+        cube_name, want_levels = entry
+        out.append((str(cube_name), bool(want_levels)))
+    return tuple(out)
+
+
+def _coerce_name_vars(value, key):
+    """
+    Coerce a config list of cube names into a tuple of strings (the in-code form
+    for ``averaged_mass_vars`` / ``averaged_staggered_vars``).
+
+    An empty list is allowed and drops the group entirely.
+    """
+    if isinstance(value, str):
+        raise ValueError(
+            f"data_types override {key!r} must be a list of cube names, got a "
+            f"string {value!r}"
+        )
+    return tuple(str(n) for n in value)
+
+
+def _coerce_levels(value, n_levels, key="model_levels"):
+    """
+    Coerce a config list of model levels into a sorted, de-duplicated tuple of
+    ints, validated against ``1..n_levels``.
+
+    Unlike the variable groups, an empty list is rejected — a run needs at least
+    one level. Levels outside ``1..n_levels`` raise so a typo fails at config
+    resolution rather than deep in ``.sel(model_level_number=...)``.
+    """
+    if isinstance(value, (str, int)):
+        raise ValueError(
+            f"data_types override {key!r} must be a list of integer levels, "
+            f"got {value!r}"
+        )
+    try:
+        levels = sorted({int(v) for v in value})
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"data_types override {key!r} must be a list of integer levels, "
+            f"got {value!r}"
+        ) from exc
+    if not levels:
+        raise ValueError(
+            f"data_types override {key!r} is empty; give at least one level or "
+            f"omit it to use level_stride"
+        )
+    bad = [lvl for lvl in levels if lvl < 1 or lvl > n_levels]
+    if bad:
+        raise ValueError(
+            f"data_types override {key!r}: level(s) {bad} out of range "
+            f"1..{n_levels}"
+        )
+    return tuple(levels)
+
+
 def get_source(name, cfg=None):
     """
     Resolve a :class:`MetSource` by name, applying config overrides.
@@ -337,6 +425,18 @@ def get_source(name, cfg=None):
     fields (most importantly ``archive_directory``, which can carry a ``{user}``
     template). For backward compatibility, ``UM_Global`` falls back to the
     top-level ``met_archive_directory`` when no explicit override is given.
+
+    The variable groups (``mass_vars``, ``wind_vars``, ``averaged_mass_vars``,
+    ``averaged_staggered_vars``) may also be overridden per source to tailor which
+    cubes are extracted for a job. Paired groups take ``[name, want_levels]``
+    entries; the averaged groups take bare cube names. Any group may be set empty
+    to drop it. Cube names must match the archive's iris cube names exactly, and
+    ``want_levels`` must reflect whether the cube carries model levels — a
+    mismatch fails loudly at extraction (see ``met_extract.extract._pick``).
+
+    ``model_levels`` may be given as an explicit list of model levels to load
+    (1-based, ≤ ``n_levels``); it overrides the default ``level_stride``
+    subsampling. It is validated (non-empty, in range) at resolution time.
 
     Parameters
     ----------
@@ -373,6 +473,19 @@ def get_source(name, cfg=None):
     for key in ("append_batch", "level_stride", "var_set", "cadence"):
         if key in overrides:
             changes[key] = overrides[key]
+
+    # Variable-group overrides: which cubes to extract for this job. Coerced from
+    # config lists into the in-code tuple form; any group may be set empty.
+    for key in _PAIRED_VAR_KEYS:
+        if key in overrides:
+            changes[key] = _coerce_paired_vars(overrides[key], key)
+    for key in _NAME_VAR_KEYS:
+        if key in overrides:
+            changes[key] = _coerce_name_vars(overrides[key], key)
+
+    # Explicit model-level selection (overrides level_stride when present).
+    if "model_levels" in overrides:
+        changes["model_levels"] = _coerce_levels(overrides["model_levels"], src.n_levels)
 
     return replace(src, **changes)
 

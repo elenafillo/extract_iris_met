@@ -18,7 +18,7 @@ import numpy as np
 import xarray as xr
 import dask
 
-from .config import Config, resolve_config_value
+from .config import Config, resolve_config_value, store_stem
 from .metadata import apply_cf_metadata
 from .sources import get_source
 from .regions import (
@@ -113,6 +113,7 @@ def join_month(
     reuse_existing=True,
     day=None,
     source=None,
+    suffix=None,
 ):
     """
     Extract and join all regions for a domain/year/month (or single day).
@@ -140,6 +141,10 @@ def join_month(
     day : int or str, optional
         If given, join a single day instead of the whole month (pipeline smoke
         test). Intermediates carry the full YYYYMMDD tag.
+    suffix : str, optional
+        Extra tag appended to the domain name in the per-region intermediate
+        filenames, so a variant run reuses/cleans up only its own intermediates.
+        See :func:`met_extract.config.store_stem`.
 
     Returns
     -------
@@ -155,6 +160,7 @@ def join_month(
     date_tag = f"{year}{month_str}{int(day):02d}" if day is not None else f"{year}{month_str}"
     domain_cfg = cfg.get_domain(domain_key)
     domain_name = domain_cfg["domain_name"]
+    stem = store_stem(domain_name, suffix)
     regions = domain_cfg["world_regions_codes"]
 
     scratch_root = resolve_config_value(cfg.get("scratch_path", ""), cfg.data)
@@ -179,7 +185,7 @@ def join_month(
     # 1. Ensure each region has an intermediate file.
     for region_id in regions:
         region_file = os.path.join(
-            scratch_dir, f"{domain_name}_Met_{date_tag}_{region_id}.nc"
+            scratch_dir, f"{stem}_Met_{date_tag}_{region_id}.nc"
         )
         if reuse_existing and os.path.exists(region_file):
             log(f"region {region_id} intermediate already exists, reusing")
@@ -199,11 +205,12 @@ def join_month(
             scratch_dir=scratch_dir,
             day=day,
             source=source,
+            suffix=suffix,
         )
 
     # Confirm all region files now exist.
     for region_id in regions:
-        pattern = os.path.join(scratch_dir, f"{domain_name}_Met_{date_tag}_*")
+        pattern = os.path.join(scratch_dir, f"{stem}_Met_{date_tag}_*")
         files = glob.glob(pattern)
         if np.sum([f"_{region_id}.nc" in f for f in files]) != 1:
             raise FileNotFoundError(
@@ -223,7 +230,7 @@ def join_month(
                 if region_id is None:
                     continue
                 file_path = os.path.join(
-                    scratch_dir, f"{domain_name}_Met_{date_tag}_{region_id}.nc"
+                    scratch_dir, f"{stem}_Met_{date_tag}_{region_id}.nc"
                 )
                 lat_datasets.append(_open_region(file_path, region_id))
 
@@ -291,11 +298,13 @@ def join_month(
     return met
 
 
-def cleanup_region_intermediates(domain_name, year, month, scratch_dir, day=None):
+def cleanup_region_intermediates(domain_name, year, month, scratch_dir, day=None,
+                                 suffix=None):
     """Delete per-region NetCDF intermediates for a domain/year/month (or day)."""
+    stem = store_stem(domain_name, suffix)
     month_str = f"{int(month):02d}"
     date_tag = f"{year}{month_str}{int(day):02d}" if day is not None else f"{year}{month_str}"
-    pattern = os.path.join(scratch_dir, f"{domain_name}_Met_{date_tag}_*.nc")
+    pattern = os.path.join(scratch_dir, f"{stem}_Met_{date_tag}_*.nc")
     removed = 0
     for f in glob.glob(pattern):
         try:
@@ -303,5 +312,5 @@ def cleanup_region_intermediates(domain_name, year, month, scratch_dir, day=None
             removed += 1
         except OSError:
             pass
-    log(f"cleaned up {removed} region intermediate(s) for {domain_name} {date_tag}")
+    log(f"cleaned up {removed} region intermediate(s) for {stem} {date_tag}")
     return removed

@@ -38,11 +38,39 @@ metadata:
 
 # Per-data-type overrides (paths and tuning). The structural properties of each
 # data type — grid type, region scheme, tiled/not, level count, cadence — are
-# defined in met_extract/sources.py; here you only set environment-specific paths.
+# defined in met_extract/sources.py; here you set environment-specific paths and,
+# optionally, which variables to extract.
+#
+# Variable groups (all optional; defaults live in met_extract/sources.py):
+#   mass_vars               instantaneous mass-grid fields — [cube_name, has_levels]
+#   wind_vars               staggered winds u/v            — [cube_name, has_levels]
+#   averaged_mass_vars      time-mean mass-grid fields     — [cube_name, ...]
+#   averaged_staggered_vars time-mean staggered fields     — [cube_name, ...]
+# Names must match the archive's iris cube names exactly; has_levels must say
+# whether the cube carries model levels (a mismatch fails loudly at extraction).
+# Set any group to [] to drop it. Editing these here changes every run using this
+# config, so keep a job-specific config (or a --suffix) for variant extractions.
+#
+# Model levels: by default `level_stride` keeps level 1 plus every Nth level.
+# Give an explicit `model_levels` list (1-based, ≤ the source's n_levels) to load
+# exactly those levels instead — it overrides level_stride.
 data_types:
   UM_Global:
     # Global UM archive (Mk6–11).
     archive_directory: "/gws/ssde/j25a/name/met_archive/Global/"
+    # Example: extract only temperature + humidity + winds, no averaged fields.
+    # mass_vars:
+    #   - [air_temperature, true]
+    #   - [specific_humidity, true]
+    #   - [surface_air_pressure, false]
+    # wind_vars:
+    #   - [x_wind, true]
+    #   - [y_wind, true]
+    # averaged_mass_vars: []
+    # averaged_staggered_vars: []
+    # Level selection — pick ONE of these:
+    # level_stride: 3               # level 1 + every 3rd level (the default)
+    # model_levels: [1, 10, 20, 30, 40, 50, 59]   # exact levels (overrides stride)
   UM1p5km:
     # 1.5 km UK LimitedArea archive (Mk2–4). Region tiles live under
     # UM1p5km_Mk{mk}PT/PT{region}/ inside this directory.
