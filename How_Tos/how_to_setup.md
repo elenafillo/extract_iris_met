@@ -197,6 +197,6 @@ good. Move on to [how_to_extract.md](how_to_extract.md) for real runs.
 - [ ] `python -m met_extract make-native-grid --sample-date 201601`
 - [ ] `python -m met_extract run --domain SA --date 20160115` (smoke test)
 - [ ] *(if the domain needs topography)* `ancillary_types:` entry, then
-      `python -m met_extract extract-topog --domain SA`
+      `python -m met_extract extract-topog --domain NZ`
 </content>
 </invoke>
