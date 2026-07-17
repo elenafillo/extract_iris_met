@@ -107,27 +107,27 @@ def _build_time_axis(ds, keep_provenance):
         coords (used for the instantaneous met); if False, drop them (the averaged
         fields' forecast bookkeeping differs and is not meaningful once merged).
     """
-    if "time" in ds.dims:
-        return ds
+    if "time" not in ds.dims:
+        time_dims = list(ds["time"].dims)
+        if not time_dims:                     # scalar time → length-1 time dim
+            ds = ds.expand_dims("time")
+        else:
+            ds = ds.stack(newtime=time_dims).swap_dims({"newtime": "time"})
+            if "newtime" in ds.variables:
+                ds = ds.drop_vars("newtime")
+            ds = ds.sortby("time")
 
-    time_dims = list(ds["time"].dims)
-    if not time_dims:                     # scalar time → length-1 time dim
-        return ds.expand_dims("time")
+    if not keep_provenance:
+        return ds.drop_vars(
+            ["forecast_period", "forecast_reference_time"], errors="ignore"
+        )
 
-    ds = ds.stack(newtime=time_dims).swap_dims({"newtime": "time"})
-    if keep_provenance:
-        fp = ds["forecast_period"].values
-        frt = ds["forecast_reference_time"].values
-        ds = ds.drop_vars(["forecast_period", "forecast_reference_time", "newtime"])
-        ds = ds.assign_coords(
-            forecast_period=("time", fp),
-            forecast_reference_time=("time", frt),
-        )
-    else:
-        ds = ds.drop_vars(
-            ["forecast_period", "forecast_reference_time", "newtime"], errors="ignore"
-        )
-    return ds.sortby("time")
+    ntime = ds.sizes["time"]
+    for name in ("forecast_period", "forecast_reference_time"):
+        if name in ds.coords and ds[name].dims != ("time",):
+            values = np.broadcast_to(np.atleast_1d(ds[name].values), (ntime,))
+            ds = ds.assign_coords({name: ("time", values)})
+    return ds
 
 
 def _check_unique_time(ds, region_id, date):

@@ -6,7 +6,9 @@ hosted on JASMIN — into analysis-ready yearly [Zarr](https://zarr.dev/) stores
 `met_extract` is a single command-line tool that extracts each world region,
 joins them into your domain, and appends the result to a yearly store, with
 support for multiple data types (global UM, limited-area, convective-scale),
-three grid modes, and CF/provenance metadata.
+three grid modes, and CF/provenance metadata. It can also extract static
+ancillary fields (currently limited to NZCSM topography) and regrid to the same 
+target grid as the met data.
 
 ```bash
 python -m met_extract run --domain SA --date 2016
@@ -33,7 +35,7 @@ data-type archive paths, grid specs — lives in `config.example.yaml`.
 | ----- | -------------- |
 | [How_Tos/how_to_setup.md](How_Tos/how_to_setup.md) | Environment (jaspy), `TMPDIR`, writing `config.yaml`, native grids — **start here** |
 | [How_Tos/how_to_datatypes.md](How_Tos/how_to_datatypes.md) | The data types, Mk blocks & resolutions, world regions, grid modes, variables |
-| [How_Tos/how_to_extract.md](How_Tos/how_to_extract.md) | The CLI: `run` / `extract` / `make-native-grid`, options, resume, SLURM, adding a domain |
+| [How_Tos/how_to_extract.md](How_Tos/how_to_extract.md) | The CLI: `run` / `extract` / `make-native-grid` / `extract-topog`, options, resume, SLURM, adding a domain |
 | [How_Tos/how_to_code.md](How_Tos/how_to_code.md) | Codebase map — what each module does and how the pipeline flows |
 
 Development roadmap and open questions: [`usage.md`](usage.md).
@@ -50,6 +52,8 @@ Development roadmap and open questions: [`usage.md`](usage.md).
   config. See [how_to_datatypes.md](How_Tos/how_to_datatypes.md).
 - **Output:** one yearly Zarr store per domain, dims `time × levels × lat × lon`,
   float32 + zstd, CF + provenance attributes.
+- **Ancillary data:**  static per-domain fields (no time dimension) regridded onto 
+  the same target grid as met extraction. This is currently limited to NZCSM topography via `extract-topog` (see [`met_extract/topog.py`](met_extract/topog.py)); other data  types not yet implemented.
 
 > **Note:** the `satellite_met_*.py` / `met_functions.py` scripts and the
 > `run_*_job.txt` SLURM files in the repo root are the pre-refactor originals,

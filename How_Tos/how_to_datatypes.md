@@ -260,4 +260,33 @@ ds = xr.open_zarr(".../SOUTHAMERICA_Met_2016.zarr")
 print(ds)                 # dims, variables, coords
 print(ds.attrs)           # provenance: months_present, missing_months, grid_mode, …
 ```
+
+---
+
+## 8. Ancillary fields (currently limited to topography)
+
+Static per-domain fields — no date, no join, no zarr append. Extracted once and reused:
+[`extract-topog`](how_to_extract.md#5-extract-topog--extract-static-topography)
+regrids the domain's native-grid field onto the *same* target grid met
+extraction builds for that domain.
+
+| Field | Config key | Source | Status |
+| ----- | ---------- | ------ | ------ |
+| **topography** (`surface_altitude`) | `ancillary_types.<data_type>.native_topog_file` | native-grid `.pp` (rotated pole for NZCSM) | **working** (NZCSM) |
+
+Like `data_types:`, `ancillary_types:` is keyed by `data_type` name — the
+domain's own `data_type:` (or `UM_Global` if omitted) picks which entry
+applies:
+
+```yaml
+ancillary_types:
+  NZCSM:
+    native_topog_file: "../data/topog/TopogUMNZCSM.pp"
+
+ancillary_save_directory: "data/"
+```
+
+Output: `{ancillary_save_directory}/{domain_name}/{domain_name}_topog.nc`
+(plain NetCDF).
+
 </content>

@@ -1,6 +1,6 @@
 # How To: Extract Meteorology (the command line)
 
-How to drive the `met_extract` CLI: the three subcommands, their options, the
+How to drive the `met_extract` CLI: the four subcommands, their options, the
 extract → join → append workflow, resume behaviour, adding a domain, and running
 under SLURM.
 
@@ -17,7 +17,7 @@ export TMPDIR=/work/scratch-pw5/$USER/tmp && mkdir -p "$TMPDIR"
 
 ---
 
-## 1. The three subcommands
+## 1. The four subcommands
 
 ```
 python -m met_extract <command> [options]
@@ -28,6 +28,7 @@ python -m met_extract <command> [options]
 | **`run`** | extract → join → append to yearly zarr store (with resume) | the main workflow — producing data |
 | **`extract`** | write per-region NetCDF intermediates only | debugging / retrying a flaky region |
 | **`make-native-grid`** | save native UM grids to `data/` | one-off setup; before `native` mode |
+| **`extract-topog`** | regrid a domain's static topography onto its met target grid | one-off |
 
 Run any command with `-h` to see its options, e.g. `python -m met_extract run -h`.
 
@@ -144,7 +145,22 @@ python -m met_extract make-native-grid --output-dir /custom/path/
 
 ---
 
-## 5. Workflow at a glance
+## 5. `extract-topog` — extract static topography
+
+One-off per domain; see
+[how_to_datatypes.md](how_to_datatypes.md#8-ancillary-fields-topography-landcover).
+
+```bash
+python -m met_extract extract-topog --domain NZ
+```
+
+| Option | Meaning |
+| ------ | ------- |
+| `--domain` *(required)* | domain key (`NZ`) **or** `domain_name` (`NEWZEALAND`) |
+
+---
+
+## 6. Workflow at a glance
 
 ```
 python -m met_extract run --domain SA --date 2016
@@ -168,7 +184,7 @@ and appended one day-batch at a time.
 
 ---
 
-## 6. Add a new domain
+## 7. Add a new domain
 
 Add a block under `domains:` in `config.yaml` (see
 [how_to_datatypes.md](how_to_datatypes.md) for regions and grid modes):
@@ -202,7 +218,7 @@ find_overlapping_regions(min_lat=-25, max_lat=15, min_lon=-75, max_lon=-30)
 
 ---
 
-## 7. Run under SLURM
+## 8. Run under SLURM
 
 Extraction is memory-heavy (a month of a multi-region domain can want 100+ GB).
 On JASMIN submit it as a batch job rather than running long jobs on the login
@@ -247,7 +263,7 @@ python -m met_extract run --domain SA --date "2016${month}"
 
 ---
 
-## 8. Check the output
+## 9. Check the output
 
 ```python
 import xarray as xr
@@ -262,9 +278,17 @@ Provenance attrs (`grid_mode`, `months_present`, `missing_months`,
 `finalize_attrs` after each year. There is also a `check_met_files.py` helper and
 notebooks under `notebooks/` for validation.
 
+`extract-topog` output is a plain NetCDF (no `zarr`/provenance attrs helper):
+
+```python
+import xarray as xr
+ds = xr.open_dataset(".../NEWZEALAND/NEWZEALAND_topog.nc")
+print(ds)                                  # dims (lat, lon), surface_altitude
+```
+
 ---
 
-## 9. Common issues
+## 10. Common issues
 
 | Symptom | Likely cause / fix |
 | ------- | ------------------ |
