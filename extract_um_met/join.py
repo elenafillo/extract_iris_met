@@ -126,7 +126,7 @@ def join_month(
         Year (e.g., 2016).
     month : int or str
         Calendar month (1-12 int, or "01".."12").
-    cfg : met_extract.config.Config
+    cfg : extract_um_met.config.Config
         Configuration object.
     target : tuple of np.ndarray, optional
         Precomputed ``(target_lat, target_lon)``. If None, built from the grid spec.
@@ -144,7 +144,7 @@ def join_month(
     suffix : str, optional
         Extra tag appended to the domain name in the per-region intermediate
         filenames, so a variant run reuses/cleans up only its own intermediates.
-        See :func:`met_extract.config.store_stem`.
+        See :func:`extract_um_met.config.store_stem`.
 
     Returns
     -------

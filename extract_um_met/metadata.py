@@ -1,5 +1,5 @@
 """
-CF-convention metadata for met_extract output.
+CF-convention metadata for extract_um_met output.
 
 Single place that owns the coordinate and global attributes written into the
 yearly zarr stores, so the output is self-describing (analysis-ready) and its
@@ -81,7 +81,7 @@ def apply_cf_metadata(ds, cfg, *, mk, grid_mode, domain_name, year, use_interp=T
     ----------
     ds : xarray.Dataset
         Dataset to annotate (coords already renamed to lat/lon/levels).
-    cfg : met_extract.config.Config
+    cfg : extract_um_met.config.Config
         Configuration object (provides the metadata: block and author).
     mk : int
         UM Mk version the data came from.
@@ -133,7 +133,7 @@ def apply_cf_metadata(ds, cfg, *, mk, grid_mode, domain_name, year, use_interp=T
     comment = f"{auto_comment}. {user_comment}" if user_comment else auto_comment
 
     now = datetime.datetime.now().isoformat(timespec="seconds")
-    history = f"{now}: extracted by met_extract"
+    history = f"{now}: extracted by extract_um_met"
 
     attrs = {
         "Conventions": conventions,

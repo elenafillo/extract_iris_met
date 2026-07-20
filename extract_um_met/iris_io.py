@@ -86,7 +86,7 @@ def load_files(files, vars, homefolder, callback=remove_coord_callback):
     Compressed files (``.pp.gz``) are decompressed into ``homefolder`` first
     (reusing any already present); uncompressed ``.pp`` files are read directly
     from the archive. Known-bad files are skipped. This is the loader used by the
-    :class:`~met_extract.sources.MetSource`-driven pipeline, where file discovery
+    :class:`~extract_um_met.sources.MetSource`-driven pipeline, where file discovery
     is done by ``source.list_files`` rather than reconstructed here.
 
     Parameters

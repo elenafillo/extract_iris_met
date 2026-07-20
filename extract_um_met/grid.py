@@ -95,7 +95,7 @@ def save_native_grid(lat_array, lon_array, mk_version, output_dir="data/", world
     ds.attrs['mk_version'] = mk_version
     if world_region_id is not None:
         ds.attrs['world_region_id'] = world_region_id
-    ds.attrs['created_with'] = 'met_extract.grid.save_native_grid'
+    ds.attrs['created_with'] = 'extract_um_met.grid.save_native_grid'
 
     ds.to_netcdf(str(filename))
     print(f"Saved native grid to {filename}")
@@ -142,7 +142,7 @@ def load_native_grid(mk_version, output_dir="data/"):
     raise FileNotFoundError(
         f"Native grid not found for Mk {mk_version}. Looked for: "
         + ", ".join(str(c) for c in candidates)
-        + ". Run `python -m met_extract make-native-grid --mk "
+        + ". Run `python -m extract_um_met make-native-grid --mk "
         + f"{mk_version}` first."
     )
 

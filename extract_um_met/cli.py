@@ -7,9 +7,9 @@ Provides subcommands for extracting meteorology data:
   - make-native-grid: save native UM grids for reference
 
 Example usage:
-  python -m met_extract run --domain SA --date 2016
-  python -m met_extract extract --domain SA --date 201601 --region 6
-  python -m met_extract make-native-grid --mk 10
+  python -m extract_um_met run --domain SA --date 2016
+  python -m extract_um_met extract --domain SA --date 201601 --region 6
+  python -m extract_um_met make-native-grid --mk 10
 """
 
 import argparse

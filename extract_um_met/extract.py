@@ -33,7 +33,7 @@ from .rotated import (
 
 
 # Variable groups (which cubes to extract and how each is gridded) now live on
-# the MetSource — see met_extract.sources. They are selected by (name,
+# the MetSource — see extract_um_met.sources. They are selected by (name,
 # want_levels) via _pick. Time-averaged fields (fluxes/stresses) are 3-hour means
 # stamped at the interval MIDPOINT from a different forecast run; we re-stamp them
 # to the interval END to align with the instantaneous fields (see
@@ -219,7 +219,7 @@ def extract_region(
         Calendar month, as an int 1-12 or a "01".."12" string.
     region_id : int
         World region ID (1-14).
-    cfg : met_extract.config.Config
+    cfg : extract_um_met.config.Config
         Configuration object.
     target : tuple of np.ndarray, optional
         Precomputed ``(target_lat, target_lon)`` 1D arrays. If None, the target
@@ -243,7 +243,7 @@ def extract_region(
     suffix : str, optional
         Extra tag appended to the domain name in the intermediate filename
         (``{domain_name}_{suffix}_Met_...``), so variant extractions don't share
-        scratch intermediates. See :func:`met_extract.config.store_stem`.
+        scratch intermediates. See :func:`extract_um_met.config.store_stem`.
 
     Returns
     -------
@@ -461,7 +461,7 @@ def extract_single(
     date : str
         Glob key for the time window (e.g. 'YYYYMMDD' for a day, 'YYYYMMDDHH' for
         an hour) — matched against the source's single-file template.
-    cfg : met_extract.config.Config
+    cfg : extract_um_met.config.Config
     target : tuple of np.ndarray, optional
         Precomputed ``(target_lat, target_lon)`` regular grid. If None, built from
         the domain's grid spec.
@@ -470,12 +470,12 @@ def extract_single(
     save : bool, optional
         If True, write an intermediate NetCDF and return its path; otherwise
         return the in-memory dataset (the default for the batched run loop).
-    source : met_extract.sources.MetSource, optional
+    source : extract_um_met.sources.MetSource, optional
         Resolved source; if None, resolved from the domain's ``data_type``.
     suffix : str, optional
         Extra tag appended to the domain name in the output filename
         (``{domain_name}_{suffix}_Met_...``). See
-        :func:`met_extract.config.store_stem`.
+        :func:`extract_um_met.config.store_stem`.
 
     Returns
     -------
