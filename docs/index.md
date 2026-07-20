@@ -1,31 +1,126 @@
 # extract_um_met
 
-Extract meteorology from the Met Office Unified Model (UM) — iris `.pp` files
-hosted on JASMIN — into analysis-ready yearly [Zarr](https://zarr.dev/) stores.
+Extract meteorology from the Met Office **Unified Model (UM)** — iris `.pp` files
+archived on JASMIN — into analysis-ready yearly [Zarr](https://zarr.dev/) stores.
 
-`extract_um_met` is a single command-line tool that extracts each world region,
-joins them into your domain, and appends the result to a yearly store, with
-support for multiple data types (global UM, limited-area, convective-scale),
-three grid modes, and CF/provenance metadata.
+The UM archive is not laid out for analysis: it is thousands of gzipped `.pp`
+files, split across time blocks and geographic tiles, on a grid whose resolution
+changes partway through the record. `extract_um_met` is one command that pulls
+the tiles your region needs, joins them, regrids them onto a target you define,
+and appends the result to a single Zarr store per year.
 
 ```bash
 python -m extract_um_met run --domain SA --date 2016
 # → {zarr_save_directory}/SOUTHAMERICA/SOUTHAMERICA_Met_2016.zarr
 ```
 
+## How the UM archive is organised
+
+Two things shape everything else in this tool: **Mk blocks** (how the archive is
+split in time) and **world regions** (how it is split in space).
+
+### Mk blocks — the time axis
+
+From 2011 the UM is released in numbered **"Mk" blocks**, each covering a date
+range at a fixed native resolution. The resolution *changes between blocks*,
+which is why regridding onto a stable target grid is part of the job:
+
+| Mk | Dates | Native (Δlat × Δlon) | Status |
+| --- | ----- | -------------------- | ------ |
+| Mk6 | Jan 2011 – Mar 2013 | 0.234° × 0.352° | extractable |
+| Mk7 | Apr 2013 – Jun 2014 | 0.234° × 0.352° | extractable |
+| Mk8 | Jul 2014 – Jul 2015 | 0.156° × 0.234° | extractable |
+| Mk9 | Aug 2015 – Jun 2017 | 0.156° × 0.234° | extractable |
+| Mk10 | Jul 2017 – May 2022 | — | symlinked to `/badc/`, **not accessible** |
+| Mk11 | Jun 2022 – | — | symlinked to `/badc/`, **not accessible** |
+
+You never set the Mk yourself — give a `--date` and the block is resolved in
+code. In practice this means **2011-01 … 2017-06 is what you can extract today**;
+any later date reports missing files.
+
+### World regions — the space axis
+
+Each timestep of the global archive is split into **14 tiles**. A domain declares
+which tiles it overlaps; the pipeline extracts each one and joins them:
+
+![The 14 world regions](https://github.com/user-attachments/assets/f6dc8296-f87f-4d82-bcf5-533147d8e9a3)
+
+Global data is 3-hourly on 59 model levels, so one year of one domain is a few
+thousand tile-files reduced to a single store.
+
+## The three data types
+
+The UM global archive is the centre of this tool. Two limited-area products are
+supported by the same machinery, at earlier stages of readiness:
+
+| Data type | What it is | Status |
+| --------- | ---------- | ------ |
+| **`UM_Global`** | Global UM, 14 tiles, L59, 3-hourly | **working** (Mk6–9) — the main path |
+| `UM1p5km` | 1.5 km UK limited-area (UKV), rotated pole, 16 UK tiles, L57, hourly | region bounds not generated yet |
+| `NZCSM` | New Zealand convective-scale, rotated pole, one file per timestep, L70, hourly | partial — 12 variables ship, stresses deferred |
+
+Structural properties (grid type, tiling, levels, cadence) are code-defined in
+`sources.py`; only archive **paths** are per-environment. See
+[Data types & grids](how_to_datatypes) for the full picture.
+
+## Configuring it
+
+Everything you run is driven by `config.yaml`, copied from the versioned
+`config.example.yaml`:
+
+```bash
+cp config.example.yaml config.yaml    # then edit — your copy is git-ignored
+```
+
+The shared structure — domains, data-type archive paths, grid specs — is what
+lives in the example file. The genuinely personal parts are your scratch and
+output paths, and `met_extract_author` for provenance.
+
+### Adding a domain
+
+A domain is **config only, no code**. Declare the region, the tiles it overlaps,
+and the grid you want it on:
+
+```yaml
+domains:
+  MYDOMAIN:
+    domain_name: "MY_DOMAIN"                 # used in output paths / provenance
+    footprint: "my_reference_footprint.nc"   # for footprint mode
+    world_regions_codes: [6, 7]              # tiles it overlaps
+    grid:
+      mode: footprint                        # footprint | regular | native
+      edge_size_lat: [100, 100]
+      edge_size_lon: [85, 100]
+```
+
+Not sure which tiles you need? Ask:
+
+```python
+from extract_um_met.regions import find_overlapping_regions
+find_overlapping_regions(min_lat=-25, max_lat=15, min_lon=-75, max_lon=-30)
+```
+
+Then dry-run, smoke-test one day, and only then run the year:
+
+```bash
+python -m extract_um_met run --domain MYDOMAIN --date 201601 --dry-run
+python -m extract_um_met run --domain MYDOMAIN --date 20160115
+python -m extract_um_met run --domain MYDOMAIN --date 2016
+```
+
+To extract an existing domain onto a *different* grid, don't add a second domain
+— use `--grid-mode` with a `--suffix` so the variant sits beside the main store.
+
 ## Quick start
 
 ```bash
 cd extract_um_met
-module purge && module load jaspy                       # JASMIN Python env
+module purge && module load jaspy                              # JASMIN Python env
 export TMPDIR=/work/scratch-pw5/$USER/tmp && mkdir -p "$TMPDIR"
-cp config.example.yaml config.yaml                      # then edit your copy
-python -m extract_um_met make-native-grid --sample-date 201601   # one-off
-python -m extract_um_met run --domain SA --date 20160115   # single-day smoke test
+cp config.example.yaml config.yaml                             # then edit your copy
+python -m extract_um_met make-native-grid --sample-date 201601  # one-off
+python -m extract_um_met run --domain SA --date 20160115        # single-day smoke test
 ```
-
-`config.yaml` is git-ignored (per-user paths). The shared structure — domains,
-data-type archive paths, grid specs — lives in `config.example.yaml`.
 
 ## Documentation
 
@@ -64,17 +159,11 @@ Module map — what each module does and how the pipeline flows.
 
 ::::
 
-## At a glance
+## Output
 
-- **Data types:** `UM_Global` (global UM, Mk6–11), `UM1p5km` (1.5 km UK
-  limited-area), `NZCSM` (New Zealand convective-scale). Only the archive path
-  is per-environment; structural properties are code-defined in `sources.py`.
-- **Availability:** Global Mk6–Mk9 (2011-01 … 2017-06) are extractable today;
-  Mk10/11 are symlinked to `/badc/` and not yet accessible.
-- **Grid modes:** `footprint` (default), `regular`, `native` — set per domain in
-  config.
-- **Output:** one yearly Zarr store per domain, dims `time × levels × lat × lon`,
-  float32 + zstd, CF + provenance attributes.
+One yearly Zarr store per domain, dims `time × levels × lat × lon`, float32 with
+zstd compression, carrying CF and provenance attributes. Three grid modes are
+available — `footprint` (default), `regular`, and `native` — set per domain.
 
 ```{toctree}
 :hidden:
