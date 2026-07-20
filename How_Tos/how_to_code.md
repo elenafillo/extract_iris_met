@@ -12,10 +12,10 @@ type, a grid mode, or a variable) rather than just use it.
 ## 1. Repo layout
 
 ```
-extract_iris_met/
-├── met_extract/                # ← the package (all current logic)
+extract_um_met/
+├── extract_um_met/                # ← the package (all current logic)
 │   ├── __init__.py             # package metadata (version)
-│   ├── __main__.py             # entry point: `python -m met_extract`
+│   ├── __main__.py             # entry point: `python -m extract_um_met`
 │   ├── cli.py                  # argparse CLI + run/extract/make-native-grid orchestration
 │   ├── config.py               # config loading, {user} templating, Config accessor
 │   ├── sources.py              # MetSource data-type descriptors + registry
@@ -41,7 +41,7 @@ extract_iris_met/
 └── usage.md                    # development roadmap
 ```
 
-Legacy pre-refactor files still in the root — **superseded by `met_extract/`**,
+Legacy pre-refactor files still in the root — **superseded by `extract_um_met/`**,
 kept only until callers are migrated: `met_functions.py`,
 `satellite_met_1b1_fixed_v3.py`, `satellite_met_join_v2.py` (+ a `copy`),
 `data_utils/convert_met_to_zarr.py`, the old `run_*_job.txt` SLURM files, and the
@@ -54,7 +54,7 @@ exploratory root notebooks (`check_joined_met.ipynb`, `exploring_met_data.ipynb`
 
 ### Entry & configuration
 
-- **`__main__.py`** — makes `python -m met_extract …` work; just calls
+- **`__main__.py`** — makes `python -m extract_um_met …` work; just calls
   `cli.main()`.
 - **`cli.py`** — the command layer. Defines the `run`, `extract` and
   `make-native-grid` subcommands (argparse), parses `--date` into
@@ -175,15 +175,15 @@ Variations handled in `cli.py`:
 
 | To… | Edit |
 | --- | ---- |
-| Add a **data type** (new product/archive) | add a `MetSource` to `SOURCES` in [`sources.py`](../met_extract/sources.py); set its archive path in `config.yaml → data_types:` |
-| Add a **grid mode** | extend `build_target_grid` and add a `_build_*_grid` in [`grid.py`](../met_extract/grid.py) |
-| Change **which variables** are kept | edit the `*_vars` tuples on the `MetSource` in [`sources.py`](../met_extract/sources.py) |
+| Add a **data type** (new product/archive) | add a `MetSource` to `SOURCES` in [`sources.py`](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/extract_um_met/sources.py); set its archive path in `config.yaml → data_types:` |
+| Add a **grid mode** | extend `build_target_grid` and add a `_build_*_grid` in [`grid.py`](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/extract_um_met/grid.py) |
+| Change **which variables** are kept | edit the `*_vars` tuples on the `MetSource` in [`sources.py`](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/extract_um_met/sources.py) |
 | Change **level subsampling** | `level_stride` on the `MetSource` (or `levels()`) |
-| Add a **region scheme** (e.g. the UK-16 tiles) | implement it in `_REGION_SCHEMES` ([`sources.py`](../met_extract/sources.py)) + [`regions.py`](../met_extract/regions.py) |
-| Change **output encoding / chunking** | [`zarr_io.py`](../met_extract/zarr_io.py) (`_ZARR_CHUNKS`, `_build_encoding`) |
-| Change **CF / provenance attrs** | [`metadata.py`](../met_extract/metadata.py) + the `metadata:` config block |
-| Add a **CLI option / subcommand** | [`cli.py`](../met_extract/cli.py) |
+| Add a **region scheme** (e.g. the UK-16 tiles) | implement it in `_REGION_SCHEMES` ([`sources.py`](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/extract_um_met/sources.py)) + [`regions.py`](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/extract_um_met/regions.py) |
+| Change **output encoding / chunking** | [`zarr_io.py`](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/extract_um_met/zarr_io.py) (`_ZARR_CHUNKS`, `_build_encoding`) |
+| Change **CF / provenance attrs** | [`metadata.py`](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/extract_um_met/metadata.py) + the `metadata:` config block |
+| Add a **CLI option / subcommand** | [`cli.py`](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/extract_um_met/cli.py) |
 | Add a **domain** | `config.yaml → domains:` only (no code) — see [how_to_extract.md](how_to_extract.md#6-add-a-new-domain) |
 
-Open questions and planned work are tracked in [`usage.md`](../usage.md).
+Open questions and planned work are tracked in [`usage.md`](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/usage.md).
 </content>

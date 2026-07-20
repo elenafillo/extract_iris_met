@@ -1,4 +1,4 @@
-# How To: Set Up `met_extract`
+# How To: Set Up `extract_um_met`
 
 First-time setup on JASMIN: load the Python environment, create your temp
 directory, and write your personal `config.yaml`. Do this once per account; after
@@ -13,13 +13,13 @@ that you only touch `config.yaml` when you add a domain or change a path.
 
 ```bash
 cd /home/users/$USER            # or wherever you keep your repos
-git clone <repo-url> extract_iris_met
-cd extract_iris_met
+git clone <repo-url> extract_um_met
+cd extract_um_met
 ```
 
-Everything below is run **from the repo root** (`extract_iris_met/`). The config
+Everything below is run **from the repo root** (`extract_um_met/`). The config
 loader looks for `config.yaml` in the current working directory, so `python -m
-met_extract …` only works when you `cd` here first.
+extract_um_met …` only works when you `cd` here first.
 
 ---
 
@@ -64,7 +64,7 @@ mkdir -p "$TMPDIR"
 ```
 
 - Run this in every session (or add it to a SLURM script) **before** calling
-  `met_extract`.
+  `extract_um_met`.
 - `/work/scratch-pw5/` is the same scratch filesystem the pipeline uses for
   per-region intermediates — see `scratch_path` in the config below.
 - Scratch is not backed up and is auto-cleaned; it is the right place for
@@ -82,7 +82,7 @@ cp config.example.yaml config.yaml
 ```
 
 Then edit `config.yaml`. The shared structure (domains, data-type paths, grid
-specs) is versioned in [`config.example.yaml`](../config.example.yaml); the only
+specs) is versioned in [`config.example.yaml`](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/config.example.yaml); the only
 strictly personal field is `met_extract_author`.
 
 ### Fields to check / fill
@@ -122,7 +122,7 @@ metadata:
 ### Data-type archive paths
 
 Each data type's structural properties live in code
-(`met_extract/sources.py`); in config you only set the **archive path** per type:
+(`extract_um_met/sources.py`); in config you only set the **archive path** per type:
 
 ```yaml
 data_types:
@@ -144,12 +144,12 @@ Native UM grids are regenerable and **not committed** (`data/` is git-ignored).
 Before your first `native`-mode run — and safe to run any time — build them:
 
 ```bash
-python -m met_extract make-native-grid --sample-date 201601
+python -m extract_um_met make-native-grid --sample-date 201601
 ```
 
 This writes `data/native_grid_Mk{6..9}_*.nc` plus `_info.yaml` metadata. Only
 Mk6–Mk9 are currently accessible; Mk10/11 are symlinked to `/badc/` and will be
-reported as missing. See [how_to_datatypes.md](how_to_datatypes.md#native-grids).
+reported as missing. See [how_to_datatypes.md](how_to_datatypes.md#5-native-grids-data).
 
 ---
 
@@ -158,14 +158,14 @@ reported as missing. See [how_to_datatypes.md](how_to_datatypes.md#native-grids)
 Do a dry run — it resolves config, domain and dates without writing anything:
 
 ```bash
-python -m met_extract run --domain SA --date 201601 --dry-run
+python -m extract_um_met run --domain SA --date 201601 --dry-run
 ```
 
 Then a cheap real end-to-end test on a single day (writes a small, separate debug
 store, never touches your yearly stores):
 
 ```bash
-python -m met_extract run --domain SA --date 20160115
+python -m extract_um_met run --domain SA --date 20160115
 ```
 
 If that produces a `…_Met_20160115.zarr`, your environment, paths and config are
@@ -179,7 +179,7 @@ good. Move on to [how_to_extract.md](how_to_extract.md) for real runs.
 - [ ] `module purge && module load jaspy`
 - [ ] `export TMPDIR=/work/scratch-pw5/$USER/tmp && mkdir -p "$TMPDIR"`
 - [ ] `cp config.example.yaml config.yaml` and edit paths + `met_extract_author`
-- [ ] `python -m met_extract make-native-grid --sample-date 201601`
-- [ ] `python -m met_extract run --domain SA --date 20160115` (smoke test)
+- [ ] `python -m extract_um_met make-native-grid --sample-date 201601`
+- [ ] `python -m extract_um_met run --domain SA --date 20160115` (smoke test)
 </content>
 </invoke>

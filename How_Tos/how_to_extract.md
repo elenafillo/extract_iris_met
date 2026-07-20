@@ -1,6 +1,6 @@
 # How To: Extract Meteorology (the command line)
 
-How to drive the `met_extract` CLI: the three subcommands, their options, the
+How to drive the `extract_um_met` CLI: the three subcommands, their options, the
 extract → join → append workflow, resume behaviour, adding a domain, and running
 under SLURM.
 
@@ -10,7 +10,7 @@ under SLURM.
 **Every command assumes:**
 
 ```bash
-cd /home/users/$USER/extract_iris_met     # config.yaml is read from here
+cd /home/users/$USER/extract_um_met     # config.yaml is read from here
 module purge && module load jaspy
 export TMPDIR=/work/scratch-pw5/$USER/tmp && mkdir -p "$TMPDIR"
 ```
@@ -20,7 +20,7 @@ export TMPDIR=/work/scratch-pw5/$USER/tmp && mkdir -p "$TMPDIR"
 ## 1. The three subcommands
 
 ```
-python -m met_extract <command> [options]
+python -m extract_um_met <command> [options]
 ```
 
 | Command | Does | Use when |
@@ -29,7 +29,7 @@ python -m met_extract <command> [options]
 | **`extract`** | write per-region NetCDF intermediates only | debugging / retrying a flaky region |
 | **`make-native-grid`** | save native UM grids to `data/` | one-off setup; before `native` mode |
 
-Run any command with `-h` to see its options, e.g. `python -m met_extract run -h`.
+Run any command with `-h` to see its options, e.g. `python -m extract_um_met run -h`.
 
 ---
 
@@ -39,12 +39,12 @@ For each month it extracts every world region, joins them into the domain, and
 appends the month to the yearly store; then finalises provenance attributes.
 
 ```bash
-python -m met_extract run --domain SA --date 2016          # full year
-python -m met_extract run --domain SA --date 201601        # one month
-python -m met_extract run --domain SA --date 20160115      # single day → debug store
-python -m met_extract run --domain SA --date 2016 --overwrite       # rebuild
-python -m met_extract run --domain SA --date 201601 --grid-mode native
-python -m met_extract run --domain SA --date 201601 --dry-run
+python -m extract_um_met run --domain SA --date 2016          # full year
+python -m extract_um_met run --domain SA --date 201601        # one month
+python -m extract_um_met run --domain SA --date 20160115      # single day → debug store
+python -m extract_um_met run --domain SA --date 2016 --overwrite       # rebuild
+python -m extract_um_met run --domain SA --date 201601 --grid-mode native
+python -m extract_um_met run --domain SA --date 201601 --dry-run
 ```
 
 ### `run` options
@@ -88,9 +88,9 @@ By default a domain's store is `{DOMAIN}/{DOMAIN}_Met_{date}.zarr`. Passing
 to the main store instead of resuming/overwriting it:
 
 ```bash
-python -m met_extract run --domain NA --date 2014                       # NA/NA_Met_2014.zarr
-python -m met_extract run --domain NA --date 2014 --suffix coarse       # NA/NA_coarse_Met_2014.zarr
-python -m met_extract run --domain NA --date 2014 --grid-mode native --suffix native
+python -m extract_um_met run --domain NA --date 2014                       # NA/NA_Met_2014.zarr
+python -m extract_um_met run --domain NA --date 2014 --suffix coarse       # NA/NA_coarse_Met_2014.zarr
+python -m extract_um_met run --domain NA --date 2014 --grid-mode native --suffix native
 ```
 
 Use it to keep a `--grid-mode` / config experiment separate from the production
@@ -107,9 +107,9 @@ Writes per-region NetCDF intermediates to `{scratch}/files/` without joining or
 touching zarr. Useful to isolate one region or inspect an intermediate.
 
 ```bash
-python -m met_extract extract --domain SA --date 201601             # all regions, month
-python -m met_extract extract --domain SA --date 201601 --region 6  # one region
-python -m met_extract extract --domain SA --date 20160115 --region 6  # one region, one day
+python -m extract_um_met extract --domain SA --date 201601             # all regions, month
+python -m extract_um_met extract --domain SA --date 201601 --region 6  # one region
+python -m extract_um_met extract --domain SA --date 20160115 --region 6  # one region, one day
 ```
 
 | Option | Meaning |
@@ -129,10 +129,10 @@ unless `--keep-intermediates`). They exist to bound peak memory, not as a produc
 One-off; see [how_to_datatypes.md](how_to_datatypes.md#5-native-grids-data).
 
 ```bash
-python -m met_extract make-native-grid --sample-date 201601   # all Mks
-python -m met_extract make-native-grid --mk 9                 # one Mk
-python -m met_extract make-native-grid --dry-run             # no write
-python -m met_extract make-native-grid --output-dir /custom/path/
+python -m extract_um_met make-native-grid --sample-date 201601   # all Mks
+python -m extract_um_met make-native-grid --mk 9                 # one Mk
+python -m extract_um_met make-native-grid --dry-run             # no write
+python -m extract_um_met make-native-grid --output-dir /custom/path/
 ```
 
 | Option | Meaning |
@@ -147,7 +147,7 @@ python -m met_extract make-native-grid --output-dir /custom/path/
 ## 5. Workflow at a glance
 
 ```
-python -m met_extract run --domain SA --date 2016
+python -m extract_um_met run --domain SA --date 2016
    │
    ├─ resolve config, domain, date → 2016-01 … 2016-12, build target grid
    │
@@ -188,15 +188,15 @@ domains:
 Then dry-run, then smoke-test a single day, then run for real:
 
 ```bash
-python -m met_extract run --domain MYDOMAIN --date 201601 --dry-run
-python -m met_extract run --domain MYDOMAIN --date 20160115
-python -m met_extract run --domain MYDOMAIN --date 2016
+python -m extract_um_met run --domain MYDOMAIN --date 201601 --dry-run
+python -m extract_um_met run --domain MYDOMAIN --date 20160115
+python -m extract_um_met run --domain MYDOMAIN --date 2016
 ```
 
 To find which `world_regions_codes` a bounding box needs:
 
 ```python
-from met_extract.regions import find_overlapping_regions
+from extract_um_met.regions import find_overlapping_regions
 find_overlapping_regions(min_lat=-25, max_lat=15, min_lon=-75, max_lon=-30)
 ```
 
@@ -221,13 +221,13 @@ node. A minimal template using the current CLI:
 #SBATCH --error=logs/%x_%j.err
 #SBATCH -t 08:00:00
 
-cd /home/users/$USER/extract_iris_met
+cd /home/users/$USER/extract_um_met
 module purge
 module load jaspy
 export TMPDIR=/work/scratch-pw5/$USER/tmp
 mkdir -p "$TMPDIR"
 
-python -m met_extract run --domain SA --date 2016
+python -m extract_um_met run --domain SA --date 2016
 ```
 
 Submit with `sbatch your_job.slurm`. To parallelise across months, use a SLURM
@@ -236,12 +236,12 @@ array and map `$SLURM_ARRAY_TASK_ID` (1–12) to a `--date YYYYMM`:
 ```bash
 #SBATCH --array=1-12
 month=$(printf "%02d" "$SLURM_ARRAY_TASK_ID")
-python -m met_extract run --domain SA --date "2016${month}"
+python -m extract_um_met run --domain SA --date "2016${month}"
 ```
 
 > **Note:** the old `run_single_job.txt` / `run_parallel_job.txt` templates in the
 > repo root call the deprecated `satellite_met_1b1_fixed_v3.py` /
-> `satellite_met_join_v2.py` scripts — **not** the `met_extract` package. Use the
+> `satellite_met_join_v2.py` scripts — **not** the `extract_um_met` package. Use the
 > template above instead. (Array-appending months in parallel can race the zarr
 > store; prefer running one year sequentially, or one array task per year.)
 

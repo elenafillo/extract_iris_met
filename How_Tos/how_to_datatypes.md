@@ -11,7 +11,7 @@ put in your config before running.
 
 ## 1. Data types (sources)
 
-A **data type** (a `MetSource`, defined in `met_extract/sources.py`) is one met
+A **data type** (a `MetSource`, defined in `extract_um_met/sources.py`) is one met
 product. They differ on almost every axis — archive layout, filename pattern, Mk
 calendar, grid projection, region scheme, level count, cadence, compression, and
 whether they are *tiled* (many region files that must be joined) or a single file
@@ -77,7 +77,7 @@ MO{YYYYMMDD}{HHMM}.UMG_Mk{N}_{set}_L59PT{region}.pp[.gz]
 ## 3. Grid modes
 
 Every domain is extracted onto a **target grid** chosen by its `grid.mode`
-(built in `met_extract/grid.py`). Set this per domain in config:
+(built in `extract_um_met/grid.py`). Set this per domain in config:
 
 | Mode | Target grid | Interpolates? | Needs |
 | ---- | ----------- | ------------- | ----- |
@@ -136,7 +136,7 @@ grid:
 Tiled Global data is split into **14 world regions**. A domain lists the ones it
 overlaps in `world_regions_codes`; the pipeline extracts each and joins them.
 Bounds are `[min_lat, max_lat, min_lon, max_lon]` (from
-`met_extract/regions.py`):
+`extract_um_met/regions.py`):
 
 | Region | Lat band | Lon band | Notes |
 | ------ | -------- | -------- | ----- |
@@ -191,9 +191,9 @@ Native grids are the true UM lat/lon per Mk, saved for reference and for
 with `make-native-grid` (see [how_to_setup.md](how_to_setup.md#5-generate-native-grids-one-off)):
 
 ```bash
-python -m met_extract make-native-grid --sample-date 201601   # all Mks
-python -m met_extract make-native-grid --mk 9                  # one Mk
-python -m met_extract make-native-grid --dry-run              # inspect, no write
+python -m extract_um_met make-native-grid --sample-date 201601   # all Mks
+python -m extract_um_met make-native-grid --mk 9                  # one Mk
+python -m extract_um_met make-native-grid --dry-run              # inspect, no write
 ```
 
 Per Mk this writes into `data/`:
@@ -234,7 +234,7 @@ interval end):
 coords to `lat` / `lon` / `levels`.
 
 > The full raw UM variable inventory (both `I` and `M` sets, ~30 fields) is
-> listed in the [top-level README](../README.md#variable-lists); only the 12
+> listed in the [top-level README](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/README.md#variable-lists); only the 12
 > above are carried into the zarr stores.
 
 ---
