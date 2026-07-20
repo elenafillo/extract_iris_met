@@ -1,0 +1,7 @@
+/* The data-type and variable tables in the how-tos are wide; let them scroll
+   inside their own box rather than stretching the page. */
+.bd-article table {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}

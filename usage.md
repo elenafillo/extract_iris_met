@@ -1,13 +1,13 @@
-# met_extract — Development Roadmap
+# extract_um_met — Development Roadmap
 
-Status, remaining work, and open questions for the `met_extract` package. This
+Status, remaining work, and open questions for the `extract_um_met` package. This
 file is the **planning** document; for how to install, configure, and run the
-tool, and for the codebase map, see [`How_Tos/`](How_Tos/):
+tool, and for the codebase map, see [`How_Tos/`](https://github.com/elenafillo/extract_um_met/tree/zarr_stores/How_Tos/):
 
-- [how_to_setup.md](How_Tos/how_to_setup.md) — environment & config
-- [how_to_datatypes.md](How_Tos/how_to_datatypes.md) — data types, grids, regions
-- [how_to_extract.md](How_Tos/how_to_extract.md) — the CLI
-- [how_to_code.md](How_Tos/how_to_code.md) — module map & pipeline
+- [how_to_setup.md](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/How_Tos/how_to_setup.md) — environment & config
+- [how_to_datatypes.md](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/How_Tos/how_to_datatypes.md) — data types, grids, regions
+- [how_to_extract.md](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/How_Tos/how_to_extract.md) — the CLI
+- [how_to_code.md](https://github.com/elenafillo/extract_um_met/blob/zarr_stores/How_Tos/how_to_code.md) — module map & pipeline
 
 ---
 
@@ -19,7 +19,7 @@ yearly Zarr append, with resume, three grid modes, single-day smoke test,
 2017-06) are extractable; Mk10/11 are symlinked to `/badc/` and inaccessible.
 
 **Data-type abstraction landed:** the pipeline dispatches on a `MetSource`
-descriptor (`met_extract/sources.py`) instead of hardcoding the global UM.
+descriptor (`extract_um_met/sources.py`) instead of hardcoding the global UM.
 `UM_Global`, `UM1p5km`, and `NZCSM` are registered; archive paths are set per
 environment in `config.yaml → data_types:`.
 
