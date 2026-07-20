@@ -1,4 +1,4 @@
-# met_extract configuration TEMPLATE.
+# extract_um_met configuration TEMPLATE.
 #
 #   cp config.example.yaml config.yaml
 #
@@ -38,10 +38,10 @@ metadata:
 
 # Per-data-type overrides (paths and tuning). The structural properties of each
 # data type — grid type, region scheme, tiled/not, level count, cadence — are
-# defined in met_extract/sources.py; here you set environment-specific paths and,
+# defined in extract_um_met/sources.py; here you set environment-specific paths and,
 # optionally, which variables to extract.
 #
-# Variable groups (all optional; defaults live in met_extract/sources.py):
+# Variable groups (all optional; defaults live in extract_um_met/sources.py):
 #   mass_vars               instantaneous mass-grid fields — [cube_name, has_levels]
 #   wind_vars               staggered winds u/v            — [cube_name, has_levels]
 #   averaged_mass_vars      time-mean mass-grid fields     — [cube_name, ...]

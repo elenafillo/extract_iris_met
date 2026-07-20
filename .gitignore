@@ -10,7 +10,7 @@ logs/
 # OS-generated files
 .DS_Store
 
-# Native grids: regenerable via `python -m met_extract make-native-grid`.
+# Native grids: regenerable via `python -m extract_um_met make-native-grid`.
 # Keep the folder tracked (via .gitkeep) but not its contents.
 data/*
 !data/.gitkeep
@@ -22,3 +22,6 @@ config.yaml
 pp_data/
 *.pp
 *.pp.gz
+
+# Sphinx docs build output
+docs/_build/

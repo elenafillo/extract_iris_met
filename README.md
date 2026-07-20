@@ -1,33 +1,36 @@
-# extract_iris_met
+# extract_um_met
 
 Extract meteorology from the Met Office Unified Model (UM) — iris `.pp` files
 hosted on JASMIN — into analysis-ready yearly [Zarr](https://zarr.dev/) stores.
 
-`met_extract` is a single command-line tool that extracts each world region,
+`extract_um_met` is a single command-line tool that extracts each world region,
 joins them into your domain, and appends the result to a yearly store, with
 support for multiple data types (global UM, limited-area, convective-scale),
 three grid modes, and CF/provenance metadata.
 
 ```bash
-python -m met_extract run --domain SA --date 2016
+python -m extract_um_met run --domain SA --date 2016
 # → {zarr_save_directory}/SOUTHAMERICA/SOUTHAMERICA_Met_2016.zarr
 ```
 
 ## Quick start
 
 ```bash
-cd extract_iris_met
+cd extract_um_met
 module purge && module load jaspy                       # JASMIN Python env
 export TMPDIR=/work/scratch-pw5/$USER/tmp && mkdir -p "$TMPDIR"
 cp config.example.yaml config.yaml                      # then edit your copy
-python -m met_extract make-native-grid --sample-date 201601   # one-off
-python -m met_extract run --domain SA --date 20160115   # single-day smoke test
+python -m extract_um_met make-native-grid --sample-date 201601   # one-off
+python -m extract_um_met run --domain SA --date 20160115   # single-day smoke test
 ```
 
 `config.yaml` is git-ignored (per-user paths). The shared structure — domains,
 data-type archive paths, grid specs — lives in `config.example.yaml`.
 
-## Documentation → [`How_Tos/`](How_Tos/)
+## Documentation → [elenafillo.github.io/extract_um_met](https://elenafillo.github.io/extract_um_met/)
+
+The same guides live in [`How_Tos/`](How_Tos/) and are the source of truth; the
+site renders them via `docs/`.
 
 | Guide | What it covers |
 | ----- | -------------- |
@@ -43,7 +46,7 @@ Development roadmap and open questions: [`usage.md`](usage.md).
 - **Data types:** `UM_Global` (global UM, Mk6–11), `UM1p5km` (1.5 km UK
   limited-area), `NZCSM` (New Zealand convective-scale). Only the archive path is
   per-environment; structural properties are code-defined in
-  [`met_extract/sources.py`](met_extract/sources.py).
+  [`extract_um_met/sources.py`](extract_um_met/sources.py).
 - **Availability:** Global Mk6–Mk9 (2011-01 … 2017-06) are extractable today;
   Mk10/11 are symlinked to `/badc/` and not yet accessible.
 - **Grid modes:** `footprint` (default), `regular`, `native` — set per domain in
@@ -53,5 +56,5 @@ Development roadmap and open questions: [`usage.md`](usage.md).
 
 > **Note:** the `satellite_met_*.py` / `met_functions.py` scripts and the
 > `run_*_job.txt` SLURM files in the repo root are the pre-refactor originals,
-> kept for reference only — the supported workflow is `python -m met_extract`.
+> kept for reference only — the supported workflow is `python -m extract_um_met`.
 </content>
