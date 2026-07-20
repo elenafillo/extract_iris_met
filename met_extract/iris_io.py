@@ -118,8 +118,21 @@ def load_files(files, vars, homefolder, callback=remove_coord_callback):
         if f.endswith(".gz"):
             dest = os.path.join(homefolder, base[:-3])   # strip '.gz'
             if not os.path.exists(dest):
-                with gzip.open(f, "rb") as f_in, open(dest, "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
+                # Decompress to a per-process temp file, then atomically rename.
+                # An interrupted decompress (crash, kill, full disk) then leaves
+                # only a `.tmp` file, never a truncated `dest` that later runs
+                # would reuse without re-validating (the cause of the merge-time
+                # "meta or dtype" failures). The PID keeps concurrent SLURM array
+                # tasks sharing this scratch from clobbering each other's temp.
+                tmp = f"{dest}.tmp.{os.getpid()}"
+                try:
+                    with gzip.open(f, "rb") as f_in, open(tmp, "wb") as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                    os.replace(tmp, dest)   # atomic on the same filesystem
+                except BaseException:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                    raise
                 n_decompressed += 1
             to_load.append(dest)
         else:
