@@ -155,6 +155,8 @@ Bounds are `[min_lat, max_lat, min_lon, max_lon]` (from
 | 13 | −80.0 … −25.0 | −135 … −45 | |
 | 14 | −90.0 … −79.9 | polar cap | South pole |
 
+![The 14 world regions](https://github.com/user-attachments/assets/f6dc8296-f87f-4d82-bcf5-533147d8e9a3)
+
 Grid layout (matches the region numbering above):
 
 ```
@@ -179,8 +181,11 @@ Existing domains in the config and their regions:
 | `NA` | NORTHAFRICA | 2, 3, 6, 7 | footprint |
 | `CHINA` | CHINA | 3, 4, 7, 8 | footprint |
 | `INDIA` | INDIA | 3, 7 | footprint |
-| `INDIA_native_manual` | INDIA_native_manual | 3, 7 | native |
 | `NZ` | NEWZEALAND | — (NZCSM, non-tiled) | regular |
+
+To extract an existing domain on a different grid, don't add a second domain —
+run it with `--grid-mode` and a `--suffix` so the variant lands beside the main
+store — see the `--suffix` section of [how_to_extract.md](how_to_extract.md).
 
 ---
 

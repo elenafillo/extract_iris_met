@@ -122,14 +122,9 @@ domains:
     footprint: "GOSAT-INDIA-SAM-column_SOUTHASIA_201503.nc"
     world_regions_codes: [3, 7]
 
-  # Example of a native-grid domain (no footprint; explicit bounds).
-  INDIA_native_manual:
-    domain_name: "INDIA_native_manual"
-    world_regions_codes: [3, 7]
-    grid:
-      mode: native
-      lat_bounds: [-17, 59]
-      lon_bounds: [45, 127]
+  # To extract an existing domain on a different grid, don't define a second
+  # domain here — run it with `--grid-mode native --suffix native` so the variant
+  # lands beside the main store with its own resume state.
 
   # New Zealand convective-scale model — a non-tiled, rotated-pole source. It has
   # no world_regions_codes (one file covers the whole domain). The target is a
